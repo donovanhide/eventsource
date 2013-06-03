@@ -18,7 +18,7 @@ type Stream struct {
 }
 
 // Subscribe to the Events emitted from the specified url.
-// A non-empty lastEventId will be sent to the server in case it can replay missed events.
+// If lastEventId is non-empty it will be sent to the server in case it can replay missed events.
 func Subscribe(url, lastEventId string) (*Stream, error) {
 	stream := &Stream{
 		url:         url,

@@ -5,6 +5,7 @@ import (
 	"sync"
 )
 
+// Example repository that uses a slice as storage for past events.
 type SliceRepository struct {
 	events map[string][]Event
 	lock   sync.RWMutex
