@@ -1,6 +1,6 @@
 # Eventsource
 
-Eventsource implements a  [Go](http://golang.org/) implemntation of  client and server to allow streaming data one-way over a HTTP connection using the Server-Sent Events API http://dev.w3.org/html5/eventsource/
+Eventsource implements a  [Go](http://golang.org/) implementation of  client and server to allow streaming data one-way over a HTTP connection using the Server-Sent Events API http://dev.w3.org/html5/eventsource/
 
 ## Installation
 

@@ -7,7 +7,7 @@ package eventsource
 
 // Any event received by the client or sent by the server will implement this interface
 type Event interface {
-	// Id is an identifier that can be used to allow a client to reply
+	// Id is an identifier that can be used to allow a client to replay
 	// missed Events by returning the Last-Event-Id header.
 	// Return empty string if not required.
 	Id() string
