@@ -88,7 +88,7 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 	}
 }
 
-// Register the repository to be used for the specified repository
+// Register the repository to be used for the specified channel
 func (srv *Server) Register(channel string, repo Repository) {
 	srv.registrations <- &registration{
 		channel:    channel,
