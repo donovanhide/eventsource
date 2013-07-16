@@ -2,8 +2,8 @@ package eventsource_test
 
 import (
 	"encoding/json"
-	"eventsource"
 	"fmt"
+	"github.com/donovanhide/eventsource"
 	"net"
 	"net/http"
 )

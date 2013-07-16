@@ -23,5 +23,5 @@ type Repository interface {
 	// Gets an event based on the specified channel and event id.
 	Get(channel, id string) Event
 	// Gets the ids which should follow on from the specified channel and event id.
-	Replay(channel, id string) []string
+	Replay(channel, id string) chan string
 }
