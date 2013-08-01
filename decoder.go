@@ -2,7 +2,6 @@ package eventsource
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -32,7 +31,7 @@ func (dec *decoder) Decode() (Event, error) {
 	for {
 		line, err := dec.ReadString('\n')
 		if err != nil {
-			return nil, fmt.Errorf("Eventsource: Decode: %s", err)
+			return nil, err
 		}
 		if line == "\n" {
 			break
