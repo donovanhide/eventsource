@@ -29,13 +29,16 @@ func (repo SliceRepository) Get(channel, id string) Event {
 	return repo.events[channel][repo.indexOfEvent(channel, id)]
 }
 
-func (repo SliceRepository) Replay(channel, id string) (ids []string) {
-	repo.lock.RLock()
-	defer repo.lock.RUnlock()
-	events := repo.events[channel][repo.indexOfEvent(channel, id):]
-	for i := range events {
-		ids = append(ids, events[i].Id())
-	}
+func (repo SliceRepository) Replay(channel, id string) (ids chan string) {
+	ids = make(chan string)
+	go func() {
+		repo.lock.RLock()
+		defer repo.lock.RUnlock()
+		events := repo.events[channel][repo.indexOfEvent(channel, id):]
+		for i := range events {
+			ids <- events[i].Id()
+		}
+	}()
 	return
 }
 

@@ -105,7 +105,7 @@ func (srv *Server) Publish(channels []string, ev Event) {
 }
 
 func replay(repo Repository, sub *subscription) {
-	for _, id := range repo.Replay(sub.channel, sub.lastEventId) {
+	for id := range repo.Replay(sub.channel, sub.lastEventId) {
 		sub.out <- repo.Get(sub.channel, id)
 	}
 }
