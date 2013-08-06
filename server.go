@@ -88,7 +88,7 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 	}
 }
 
-// Register the repository to be used for the specified repository
+// Register the repository to be used for the specified channel
 func (srv *Server) Register(channel string, repo Repository) {
 	srv.registrations <- &registration{
 		channel:    channel,
@@ -105,8 +105,8 @@ func (srv *Server) Publish(channels []string, ev Event) {
 }
 
 func replay(repo Repository, sub *subscription) {
-	for id := range repo.Replay(sub.channel, sub.lastEventId) {
-		sub.out <- repo.Get(sub.channel, id)
+	for ev := range repo.Replay(sub.channel, sub.lastEventId) {
+		sub.out <- ev
 	}
 }
 
