@@ -20,8 +20,6 @@ type Event interface {
 // If history is required, this interface will allow clients to reply previous events through the server.
 // Both methods can be called from different goroutines concurrently, so you must make sure they are go-routine safe.
 type Repository interface {
-	// Gets an event based on the specified channel and event id.
-	Get(channel, id string) Event
-	// Gets the ids which should follow on from the specified channel and event id.
-	Replay(channel, id string) chan string
+	// Gets the Events which should follow on from the specified channel and event id.
+	Replay(channel, id string) chan Event
 }
