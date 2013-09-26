@@ -21,8 +21,8 @@ type registration struct {
 }
 
 type Server struct {
-	// Enable all handlers to be accessible from any origin
-	AllowCORS     bool
+	AllowCORS     bool // Enable all handlers to be accessible from any origin
+	ReplayAll     bool // Replay repository even if there's no Last-Event-Id specified
 	registrations chan *registration
 	pub           chan *outbound
 	subs          chan *subscription
@@ -130,7 +130,7 @@ func (srv *Server) run() {
 				subs[sub.channel] = make(map[*subscription]struct{})
 			}
 			subs[sub.channel][sub] = struct{}{}
-			if len(sub.lastEventId) > 0 {
+			if srv.ReplayAll || len(sub.lastEventId) > 0 {
 				repo, ok := repos[sub.channel]
 				if ok {
 					go replay(repo, sub)
