@@ -5,10 +5,6 @@ import (
 	"net/http"
 )
 
-var (
-	ClientBufferSize = 128
-)
-
 type subscription struct {
 	channel     string
 	lastEventId string
@@ -27,6 +23,7 @@ type registration struct {
 type Server struct {
 	AllowCORS     bool // Enable all handlers to be accessible from any origin
 	ReplayAll     bool // Replay repository even if there's no Last-Event-Id specified
+	BufferSize    int  // How many messages do we let the client get behind before disconnecting
 	registrations chan *registration
 	pub           chan *outbound
 	subs          chan *subscription
@@ -42,6 +39,7 @@ func NewServer() *Server {
 		subs:          make(chan *subscription),
 		unregister:    make(chan *subscription, 2),
 		quit:          make(chan bool),
+		BufferSize:    128,
 	}
 	go srv.run()
 	return srv
@@ -65,7 +63,7 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 		sub := &subscription{
 			channel:     channel,
 			lastEventId: req.Header.Get("Last-Event-ID"),
-			out:         make(chan Event, ClientBufferSize),
+			out:         make(chan Event, srv.BufferSize),
 		}
 		srv.subs <- sub
 		flusher := w.(http.Flusher)
