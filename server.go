@@ -36,7 +36,7 @@ func NewServer() *Server {
 		registrations: make(chan *registration),
 		pub:           make(chan *outbound),
 		subs:          make(chan *subscription),
-		unregister:    make(chan *subscription),
+		unregister:    make(chan *subscription, 2),
 		quit:          make(chan bool),
 	}
 	go srv.run()
@@ -61,7 +61,7 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 		sub := &subscription{
 			channel:     channel,
 			lastEventId: req.Header.Get("Last-Event-ID"),
-			out:         make(chan Event),
+			out:         make(chan Event, 5),
 		}
 		srv.subs <- sub
 		flusher := w.(http.Flusher)
@@ -122,7 +122,13 @@ func (srv *Server) run() {
 		case pub := <-srv.pub:
 			for _, c := range pub.channels {
 				for s := range subs[c] {
-					s.out <- pub.event
+					select {
+					case s.out <- pub.event:
+					default:
+						srv.unregister <- s
+						close(s.out)
+					}
+
 				}
 			}
 		case sub := <-srv.subs:
