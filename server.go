@@ -5,6 +5,10 @@ import (
 	"net/http"
 )
 
+var (
+	ClientBufferSize = 128
+)
+
 type subscription struct {
 	channel     string
 	lastEventId string
@@ -61,7 +65,7 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 		sub := &subscription{
 			channel:     channel,
 			lastEventId: req.Header.Get("Last-Event-ID"),
-			out:         make(chan Event, 5),
+			out:         make(chan Event, ClientBufferSize),
 		}
 		srv.subs <- sub
 		flusher := w.(http.Flusher)
