@@ -26,7 +26,21 @@ func newDecoder(r io.Reader) *decoder {
 	return dec
 }
 
+// Decode reads the next Event from a stream (and will block until one
+// comes in).
+// Graceful disconnects (between events) are indicated by an io.EOF error.
+// Any error occuring mid-event is considered non-graceful and will
+// show up as some other error (most likely io.ErrUnexpectedEOF).
 func (dec *decoder) Decode() (Event, error) {
+
+	// peek ahead before we start a new event so we can return EOFs
+	_, err := dec.Peek(1)
+	if err == io.ErrUnexpectedEOF {
+		err = io.EOF
+	}
+	if err != nil {
+		return nil, err
+	}
 	pub := new(publication)
 	for {
 		line, err := dec.ReadString('\n')

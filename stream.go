@@ -7,14 +7,21 @@ import (
 	"time"
 )
 
-// A stream will manage connections to Server Sent Events. It will try and reconnect if the connection is lost, respecting both received retry delays and event id's.
+// Stream handles a connection for receiving Server Sent Events.
+// It will try and reconnect if the connection is lost, respecting both
+// received retry delays and event id's.
 type Stream struct {
 	c           http.Client
 	url         string
 	lastEventId string
 	retry       time.Duration
-	Events      chan Event
-	Errors      chan error
+	// Events emits the events received by the stream
+	Events chan Event
+	// Errors emits any errors encountered while reading events from the stream.
+	// It's mainly for informative purposes - the client isn't required to take any
+	// action when an error is encountered. The stream will always attempt to continue,
+	// even if that involves reconnecting to the server.
+	Errors chan error
 }
 
 // Subscribe to the Events emitted from the specified url.
@@ -58,13 +65,11 @@ func (stream *Stream) stream(r io.ReadCloser) {
 	dec := newDecoder(r)
 	for {
 		ev, err := dec.Decode()
-		if err == io.EOF {
-			stream.Errors <- err
-			break
-		}
+
 		if err != nil {
 			stream.Errors <- err
-			continue
+			// respond to all errors by reconnecting and trying again
+			break
 		}
 		pub := ev.(*publication)
 		if pub.Retry() > 0 {
@@ -79,6 +84,10 @@ func (stream *Stream) stream(r io.ReadCloser) {
 	for {
 		time.Sleep(backoff)
 		log.Printf("Reconnecting in %0.4f secs", backoff.Seconds())
+
+		// NOTE: because of the defer we're opening the new connection
+		// before closing the old one. Shouldn't be a problem in practice,
+		// but something to be aware of.
 		next, err := stream.connect()
 		if err == nil {
 			go stream.stream(next)
