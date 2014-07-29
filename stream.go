@@ -15,6 +15,7 @@ type Stream struct {
 	url         string
 	lastEventId string
 	retry       time.Duration
+	response    *http.Response
 	// Events emits the events received by the stream
 	Events chan Event
 	// Errors emits any errors encountered while reading events from the stream.
@@ -42,6 +43,10 @@ func Subscribe(url, lastEventId string) (*Stream, error) {
 	return stream, nil
 }
 
+func (stream *Stream) HttpResponse() *http.Response {
+	return stream.response
+}
+
 func (stream *Stream) connect() (r io.ReadCloser, err error) {
 	var resp *http.Response
 	var req *http.Request
@@ -56,6 +61,7 @@ func (stream *Stream) connect() (r io.ReadCloser, err error) {
 	if resp, err = stream.c.Do(req); err != nil {
 		return
 	}
+	stream.response = resp
 	r = resp.Body
 	return
 }
