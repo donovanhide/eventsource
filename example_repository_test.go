@@ -42,7 +42,7 @@ func ExampleRepository() {
 	}
 	defer l.Close()
 	go http.Serve(l, nil)
-	stream, err := eventsource.Subscribe("http://127.0.0.1:8080/articles", "")
+	stream, _, err := eventsource.Subscribe("http://127.0.0.1:8080/articles", "")
 	if err != nil {
 		return
 	}
@@ -52,7 +52,7 @@ func ExampleRepository() {
 		ev := <-stream.Events
 		fmt.Println(ev.Id(), ev.Event(), ev.Data())
 	}
-	stream, err = eventsource.Subscribe("http://127.0.0.1:8080/articles", "1")
+	stream, _, err = eventsource.Subscribe("http://127.0.0.1:8080/articles", "1")
 	if err != nil {
 		fmt.Println(err)
 		return

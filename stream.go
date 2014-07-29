@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"io/ioutil"
+	"fmt"
 )
 
 // Stream handles a connection for receiving Server Sent Events.
@@ -24,9 +26,19 @@ type Stream struct {
 	Errors chan error
 }
 
+type SubscriptionError struct {
+	Code int
+	Message string
+}
+
+func (e SubscriptionError) String() string{
+    return fmt.Sprintf("%d: %s",e.Code,e.Message)
+}
+
 // Subscribe to the Events emitted from the specified url.
 // If lastEventId is non-empty it will be sent to the server in case it can replay missed events.
-func Subscribe(url, lastEventId string) (*Stream, error) {
+func Subscribe(url, lastEventId string) (*Stream, SubscriptionError, error) {
+	var subscriptionError SubscriptionError
 	stream := &Stream{
 		url:         url,
 		lastEventId: lastEventId,
@@ -34,16 +46,26 @@ func Subscribe(url, lastEventId string) (*Stream, error) {
 		Events:      make(chan Event),
 		Errors:      make(chan error),
 	}
-	r, err := stream.connect()
+	r, resp, err := stream.connect()
 	if err != nil {
-		return nil, err
+		return nil, subscriptionError, err
 	}
+
+	if resp.StatusCode != 200 {
+		message, err := ioutil.ReadAll(resp.Body)
+		subscriptionError = SubscriptionError{
+			Code: resp.StatusCode,
+			Message: string(message),
+		}
+
+		return stream, subscriptionError, err
+	}
+
 	go stream.stream(r)
-	return stream, nil
+	return stream, subscriptionError, nil
 }
 
-func (stream *Stream) connect() (r io.ReadCloser, err error) {
-	var resp *http.Response
+func (stream *Stream) connect() (r io.ReadCloser, resp *http.Response, err error) {
 	var req *http.Request
 	if req, err = http.NewRequest("GET", stream.url, nil); err != nil {
 		return
@@ -88,7 +110,7 @@ func (stream *Stream) stream(r io.ReadCloser) {
 		// NOTE: because of the defer we're opening the new connection
 		// before closing the old one. Shouldn't be a problem in practice,
 		// but something to be aware of.
-		next, err := stream.connect()
+		next, _, err := stream.connect()
 		if err == nil {
 			go stream.stream(next)
 			break
