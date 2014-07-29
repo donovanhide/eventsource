@@ -19,16 +19,15 @@ func TestStreamErrorHandling(t *testing.T) {
 	go http.Serve(listener, nil)
 
 	// this is error handling example
-	stream, err := Subscribe("http://127.0.0.1:8080/stream", "")
+	_, subscriptionError, err := Subscribe("http://127.0.0.1:8080/stream", "")
 
 	if err != nil {
 		t.Error("failed to subscribe")
 	}
 
-	if stream.HttpResponse().StatusCode == 500 {
-		// you can handle error as you like based on status code
+	if subscriptionError.String() == "500: Something wrong.\n" {
 		return
+	} else {
+		t.Error(`Error string should be "500: Something wrong."`)
 	}
-
-	t.Error("HTTP respoonse should be 500")
 }
