@@ -1,7 +1,9 @@
 package eventsource
 
 import (
+	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"time"
@@ -22,6 +24,15 @@ type Stream struct {
 	// action when an error is encountered. The stream will always attempt to continue,
 	// even if that involves reconnecting to the server.
 	Errors chan error
+}
+
+type SubscriptionError struct {
+	Code    int
+	Message string
+}
+
+func (e SubscriptionError) Error() string {
+	return fmt.Sprintf("%d: %s", e.Code, e.Message)
 }
 
 // Subscribe to the Events emitted from the specified url.
@@ -55,6 +66,13 @@ func (stream *Stream) connect() (r io.ReadCloser, err error) {
 	}
 	if resp, err = stream.c.Do(req); err != nil {
 		return
+	}
+	if resp.StatusCode != 200 {
+		message, _ := ioutil.ReadAll(resp.Body)
+		err = SubscriptionError{
+			Code:    resp.StatusCode,
+			Message: string(message),
+		}
 	}
 	r = resp.Body
 	return
