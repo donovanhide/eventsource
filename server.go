@@ -51,8 +51,9 @@ func (srv *Server) Close() {
 }
 
 // Create a new handler for serving a specified channel
-func (srv *Server) Handler(channel string) http.HandlerFunc {
+func (srv *Server) Handler(channelCallback func(http.ResponseWriter, *http.Request) (string)) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
+		channel := channelCallback(w, req)
 		h := w.Header()
 		h.Set("Content-Type", "text/event-stream; charset=utf-8")
 		h.Set("Cache-Control", "no-cache, no-store, must-revalidate")
