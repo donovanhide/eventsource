@@ -54,6 +54,13 @@ func (srv *Server) Close() {
 func (srv *Server) Handler(channelCallback func(http.ResponseWriter, *http.Request) (string)) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		channel := channelCallback(w, req)
+		
+		// this is sort of a hack, if there isn't a channel, just close the connection
+		if channel == "" {
+			w.WriteHeader(404)
+			return
+		}
+		
 		h := w.Header()
 		h.Set("Content-Type", "text/event-stream; charset=utf-8")
 		h.Set("Cache-Control", "no-cache, no-store, must-revalidate")
