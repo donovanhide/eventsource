@@ -41,7 +41,7 @@ func Subscribe(url, lastEventId string) (*Stream, error) {
 	stream := &Stream{
 		url:         url,
 		lastEventId: lastEventId,
-		retry:       (time.Millisecond * 3000),
+		retry:       (time.Millisecond * 1000),
 		Events:      make(chan Event),
 		Errors:      make(chan error),
 	}
@@ -112,6 +112,10 @@ func (stream *Stream) stream(r io.ReadCloser) {
 			break
 		}
 		stream.Errors <- err
-		backoff *= 2
+
+		// don't let the exponential backoff go to over 64 seconds...
+		if backoff < 64 {
+			backoff *= 2
+		}
 	}
 }
