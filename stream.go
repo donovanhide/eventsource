@@ -100,8 +100,8 @@ func (stream *Stream) stream(r io.ReadCloser) {
 	}
 	backoff := stream.retry
 	for {
-		time.Sleep(backoff)
 		log.Printf("Reconnecting in %0.4f secs", backoff.Seconds())
+		time.Sleep(backoff)
 
 		// NOTE: because of the defer we're opening the new connection
 		// before closing the old one. Shouldn't be a problem in practice,
@@ -114,7 +114,7 @@ func (stream *Stream) stream(r io.ReadCloser) {
 		stream.Errors <- err
 
 		// don't let the exponential backoff go to over 64 seconds...
-		if backoff < 64 {
+		if backoff < (time.Millisecond * 64000) {
 			backoff *= 2
 		}
 	}
