@@ -28,6 +28,7 @@ type Stream struct {
 	reader      io.ReadCloser
 	readerMutex sync.Mutex
 	closeChan   chan bool
+	waitGroup   sync.WaitGroup
 }
 
 type SubscriptionError struct {
@@ -54,6 +55,7 @@ func Subscribe(url, lastEventId string) (*Stream, error) {
 	if err != nil {
 		return nil, err
 	}
+	stream.waitGroup.Add(1)
 	go stream.stream(r)
 	return stream, nil
 }
@@ -84,14 +86,8 @@ func (stream *Stream) connect() (r io.ReadCloser, err error) {
 }
 
 func (stream *Stream) stream(r io.ReadCloser) {
+	defer stream.waitGroup.Done()
 	defer r.Close()
-	defer func() {
-		// close the channels once we're sure we're done writing to them.
-		if stream.Closed() {
-			close(stream.Events)
-			close(stream.Errors)
-		}
-	}()
 
 	stream.readerMutex.Lock()
 	stream.reader = r
@@ -148,6 +144,7 @@ func (stream *Stream) stream(r io.ReadCloser) {
 		// but something to be aware of.
 		next, err := stream.connect()
 		if err == nil {
+			stream.waitGroup.Add(1)
 			go stream.stream(next)
 			break
 		}
@@ -160,7 +157,7 @@ func (stream *Stream) stream(r io.ReadCloser) {
 	}
 }
 
-// Close will stop the stream from reading any further events from the server
+// Close will stop the stream from reading any further events from the server.
 func (stream *Stream) Close() {
 	// The purpose of this function is to unblock stream.stream()
 	// and let it know that the stream has been closed
@@ -170,6 +167,10 @@ func (stream *Stream) Close() {
 		stream.reader.Close()
 	}
 	stream.readerMutex.Unlock()
+
+	stream.waitGroup.Wait()
+	close(stream.Events)
+	close(stream.Errors)
 }
 
 // Closed indicates whether Close has been called on the stream
