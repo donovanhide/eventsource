@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -23,7 +24,11 @@ type Stream struct {
 	// It's mainly for informative purposes - the client isn't required to take any
 	// action when an error is encountered. The stream will always attempt to continue,
 	// even if that involves reconnecting to the server.
-	Errors chan error
+	Errors      chan error
+	reader      io.ReadCloser
+	readerMutex sync.Mutex
+	closeChan   chan bool
+	waitGroup   sync.WaitGroup
 }
 
 type SubscriptionError struct {
@@ -43,12 +48,14 @@ func Subscribe(url, lastEventId string) (*Stream, error) {
 		lastEventId: lastEventId,
 		retry:       (time.Millisecond * 3000),
 		Events:      make(chan Event),
-		Errors:      make(chan error),
+		Errors:      make(chan error, 1),
+		closeChan:   make(chan bool),
 	}
 	r, err := stream.connect()
 	if err != nil {
 		return nil, err
 	}
+	stream.waitGroup.Add(1)
 	go stream.stream(r)
 	return stream, nil
 }
@@ -79,13 +86,34 @@ func (stream *Stream) connect() (r io.ReadCloser, err error) {
 }
 
 func (stream *Stream) stream(r io.ReadCloser) {
+	defer stream.waitGroup.Done()
 	defer r.Close()
+
+	stream.readerMutex.Lock()
+	stream.reader = r
+	stream.readerMutex.Unlock()
+	if stream.Closed() {
+		// this is to prevent potential race condition where the stream might have
+		// been closed before we set stream.reader, and so we don't call dec.Decode()
+		// which might block
+		return
+	}
+
 	dec := newDecoder(r)
 	for {
 		ev, err := dec.Decode()
+		if stream.Closed() {
+			// Ignore any error from dec.Decode() as the stream was explicitly closed
+			// by the user, which can cause read errors
+			return
+		}
 
 		if err != nil {
-			stream.Errors <- err
+			select {
+			case stream.Errors <- err:
+			default:
+				// consumer is apparently ignoring errors
+			}
 			// respond to all errors by reconnecting and trying again
 			break
 		}
@@ -96,11 +124,19 @@ func (stream *Stream) stream(r io.ReadCloser) {
 		if len(pub.Id()) > 0 {
 			stream.lastEventId = pub.Id()
 		}
-		stream.Events <- ev
+		select {
+		case stream.Events <- ev:
+		case <-stream.closeChan:
+			return
+		}
 	}
 	backoff := stream.retry
 	for {
-		time.Sleep(backoff)
+		select {
+		case <-time.After(backoff):
+		case <-stream.closeChan:
+			return
+		}
 		log.Printf("Reconnecting in %0.4f secs", backoff.Seconds())
 
 		// NOTE: because of the defer we're opening the new connection
@@ -108,10 +144,41 @@ func (stream *Stream) stream(r io.ReadCloser) {
 		// but something to be aware of.
 		next, err := stream.connect()
 		if err == nil {
+			stream.waitGroup.Add(1)
 			go stream.stream(next)
 			break
 		}
-		stream.Errors <- err
+		select {
+		case stream.Errors <- err:
+		default:
+			// consumer is apparently ignoring errors
+		}
 		backoff *= 2
+	}
+}
+
+// Close will stop the stream from reading any further events from the server.
+func (stream *Stream) Close() {
+	// The purpose of this function is to unblock stream.stream()
+	// and let it know that the stream has been closed
+	close(stream.closeChan)
+	stream.readerMutex.Lock()
+	if stream.reader != nil {
+		stream.reader.Close()
+	}
+	stream.readerMutex.Unlock()
+
+	stream.waitGroup.Wait()
+	close(stream.Events)
+	close(stream.Errors)
+}
+
+// Closed indicates whether Close has been called on the stream
+func (stream *Stream) Closed() bool {
+	select {
+	case <-stream.closeChan:
+		return true
+	default:
+		return false
 	}
 }
