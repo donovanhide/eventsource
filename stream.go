@@ -47,7 +47,7 @@ func Subscribe(url, lastEventId string) (*Stream, error) {
 		lastEventId: lastEventId,
 		retry:       (time.Millisecond * 3000),
 		Events:      make(chan Event),
-		Errors:      make(chan error),
+		Errors:      make(chan error, 1),
 		closeChan:   make(chan bool),
 	}
 	r, err := stream.connect()
@@ -113,7 +113,11 @@ func (stream *Stream) stream(r io.ReadCloser) {
 		}
 
 		if err != nil {
-			stream.Errors <- err
+			select {
+			case stream.Errors <- err:
+			default:
+				// consumer is apparently ignoring errors
+			}
 			// respond to all errors by reconnecting and trying again
 			break
 		}
@@ -147,7 +151,11 @@ func (stream *Stream) stream(r io.ReadCloser) {
 			go stream.stream(next)
 			break
 		}
-		stream.Errors <- err
+		select {
+		case stream.Errors <- err:
+		default:
+			// consumer is apparently ignoring errors
+		}
 		backoff *= 2
 	}
 }
