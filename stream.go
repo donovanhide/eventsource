@@ -1,6 +1,7 @@
 package eventsource
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ type Stream struct {
 	transport     string
 	socketAddress string
 	c             http.Client
+	tlsConfig     *tls.Config
 	url           string
 	lastEventId   string
 	retry         time.Duration
@@ -39,12 +41,13 @@ func (e SubscriptionError) Error() string {
 	return fmt.Sprintf("%d: %s", e.Code, e.Message)
 }
 
-func SubscribeSocket(socketAddress string, url string, lastEventId string) (*Stream, error) {
+func SubscribeSocket(socketAddress string, url string, lastEventId string, tlsConfig *tls.Config) (*Stream, error) {
 	stream := &Stream{
 		url:           url,
 		transport:     "unix",
 		socketAddress: socketAddress,
 		lastEventId:   lastEventId,
+		tlsConfig:     tlsConfig,
 		retry:         (time.Millisecond * 1000),
 		Events:        make(chan Event),
 		Errors:        make(chan error),
@@ -59,11 +62,12 @@ func SubscribeSocket(socketAddress string, url string, lastEventId string) (*Str
 
 // Subscribe to the Events emitted from the specified url.
 // If lastEventId is non-empty it will be sent to the server in case it can replay missed events.
-func Subscribe(url string, lastEventId string) (*Stream, error) {
+func Subscribe(url string, lastEventId string, tlsConfig *tls.Config) (*Stream, error) {
 	stream := &Stream{
 		url:         url,
 		transport:   "tcp",
 		lastEventId: lastEventId,
+		tlsConfig:   tlsConfig,
 		retry:       (time.Millisecond * 1000),
 		Events:      make(chan Event),
 		Errors:      make(chan error),
@@ -91,6 +95,7 @@ func (stream *Stream) connectUnix() (r io.ReadCloser, err error) {
 		Dial: func(network, addr string) (net.Conn, error) {
 			return net.Dial("unix", stream.socketAddress)
 		},
+		TLSClientConfig: stream.tlsConfig,
 	}
 	stream.c = http.Client{Transport: tr}
 
@@ -121,6 +126,14 @@ func (stream *Stream) connectUnix() (r io.ReadCloser, err error) {
 	return
 }
 func (stream *Stream) connectTcp() (r io.ReadCloser, err error) {
+	if stream.tlsConfig != nil {
+		tr := &http.Transport{
+			TLSClientConfig:    stream.tlsConfig,
+			DisableCompression: true,
+		}
+		stream.c = http.Client{Transport: tr}
+	}
+
 	var resp *http.Response
 	var req *http.Request
 	if req, err = http.NewRequest("GET", stream.url, nil); err != nil {
