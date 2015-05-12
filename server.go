@@ -51,8 +51,16 @@ func (srv *Server) Close() {
 }
 
 // Create a new handler for serving a specified channel
-func (srv *Server) Handler(channel string) http.HandlerFunc {
+func (srv *Server) Handler(channelConnectedCallback func(http.ResponseWriter, *http.Request) (string), channelDisconnectedCallback func(string)) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
+		channel := channelConnectedCallback(w, req)
+
+		// this is sort of a hack, if there isn't a channel, just close the connection
+		if channel == "" {
+			w.WriteHeader(404)
+			return
+		}
+
 		h := w.Header()
 		h.Set("Content-Type", "text/event-stream; charset=utf-8")
 		h.Set("Cache-Control", "no-cache, no-store, must-revalidate")
@@ -60,6 +68,7 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 		if srv.AllowCORS {
 			h.Set("Access-Control-Allow-Origin", "*")
 		}
+
 		sub := &subscription{
 			channel:     channel,
 			lastEventId: req.Header.Get("Last-Event-ID"),
@@ -73,6 +82,7 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 		for {
 			select {
 			case <-notifier.CloseNotify():
+				channelDisconnectedCallback(channel)
 				srv.unregister <- sub
 				return
 			case ev, ok := <-sub.out:
