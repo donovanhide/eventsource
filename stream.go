@@ -55,11 +55,9 @@ func Subscribe(url string, headers http.Header, lastEventId string) (*Stream, er
 		c:           &http.Client{},
 	}
 	r, err := stream.connect()
-	if err != nil {
-		return nil, err
-	}
+
 	go stream.stream(r)
-	return stream, nil
+	return stream, err
 }
 
 func copyHeader(dst, src http.Header) {
