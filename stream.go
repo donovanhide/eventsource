@@ -58,12 +58,13 @@ func Subscribe(url, lastEventId string) (*Stream, error) {
 // Go's http package doesn't copy headers across when it encounters
 // redirects so we need to do that manually.
 func checkRedirect(req *http.Request, via []*http.Request) error {
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Accept", "text/event-stream")
-
-	lastEventId := via[0].Header.Get("Last-Event-ID")
-	if len(lastEventId) > 0 {
-		req.Header.Set("Last-Event-ID", lastEventId)
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	for k, vv := range via[0].Header {
+		for _, v := range vv {
+			req.Header.Add(k, v)
+		}
 	}
 	return nil
 }
