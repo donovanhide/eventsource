@@ -45,12 +45,27 @@ func Subscribe(url, lastEventId string) (*Stream, error) {
 		Events:      make(chan Event),
 		Errors:      make(chan error),
 	}
+	stream.c.CheckRedirect = checkRedirect
+
 	r, err := stream.connect()
 	if err != nil {
 		return nil, err
 	}
 	go stream.stream(r)
 	return stream, nil
+}
+
+// Go's http package doesn't copy headers across when it encounters
+// redirects so we need to do that manually.
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Accept", "text/event-stream")
+
+	lastEventId := via[0].Header.Get("Last-Event-ID")
+	if len(lastEventId) > 0 {
+		req.Header.Set("Last-Event-ID", lastEventId)
+	}
+	return nil
 }
 
 func (stream *Stream) connect() (r io.ReadCloser, err error) {
