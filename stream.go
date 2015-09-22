@@ -1,6 +1,7 @@
 package eventsource
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -45,12 +46,28 @@ func Subscribe(url, lastEventId string) (*Stream, error) {
 		Events:      make(chan Event),
 		Errors:      make(chan error),
 	}
+	stream.c.CheckRedirect = checkRedirect
+
 	r, err := stream.connect()
 	if err != nil {
 		return nil, err
 	}
 	go stream.stream(r)
 	return stream, nil
+}
+
+// Go's http package doesn't copy headers across when it encounters
+// redirects so we need to do that manually.
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	for k, vv := range via[0].Header {
+		for _, v := range vv {
+			req.Header.Add(k, v)
+		}
+	}
+	return nil
 }
 
 func (stream *Stream) connect() (r io.ReadCloser, err error) {
