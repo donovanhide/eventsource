@@ -1,6 +1,7 @@
 package eventsource
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
