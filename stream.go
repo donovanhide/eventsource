@@ -15,7 +15,7 @@ import (
 // received retry delays and event id's.
 type Stream struct {
 	c           http.Client
-	url         string
+	req         *http.Request
 	lastEventId string
 	retry       time.Duration
 	// Events emits the events received by the stream
@@ -39,8 +39,18 @@ func (e SubscriptionError) Error() string {
 // Subscribe to the Events emitted from the specified url.
 // If lastEventId is non-empty it will be sent to the server in case it can replay missed events.
 func Subscribe(url, lastEventId string) (*Stream, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	return SubscribeWithRequest(lastEventId, req)
+}
+
+// SubscribeWithRequest will take an http.Request to setup the stream, allowing custom headers
+// to be specified, authentication to be configured, etc.
+func SubscribeWithRequest(lastEventId string, req *http.Request) (*Stream, error) {
 	stream := &Stream{
-		url:         url,
+		req:         req,
 		lastEventId: lastEventId,
 		retry:       (time.Millisecond * 3000),
 		Events:      make(chan Event),
@@ -72,16 +82,12 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 
 func (stream *Stream) connect() (r io.ReadCloser, err error) {
 	var resp *http.Response
-	var req *http.Request
-	if req, err = http.NewRequest("GET", stream.url, nil); err != nil {
-		return
-	}
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Accept", "text/event-stream")
+	stream.req.Header.Set("Cache-Control", "no-cache")
+	stream.req.Header.Set("Accept", "text/event-stream")
 	if len(stream.lastEventId) > 0 {
-		req.Header.Set("Last-Event-ID", stream.lastEventId)
+		stream.req.Header.Set("Last-Event-ID", stream.lastEventId)
 	}
-	if resp, err = stream.c.Do(req); err != nil {
+	if resp, err = stream.c.Do(stream.req); err != nil {
 		return
 	}
 	if resp.StatusCode != 200 {
