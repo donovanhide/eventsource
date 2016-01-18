@@ -23,7 +23,7 @@ var encoderTests = []struct {
 
 func TestRoundTrip(t *testing.T) {
 	buf := new(bytes.Buffer)
-	enc := newEncoder(buf)
+	enc := newEncoder(buf, false)
 	dec := newDecoder(buf)
 	for _, tt := range encoderTests {
 		want := tt.event

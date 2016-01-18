@@ -1,6 +1,7 @@
 package eventsource
 
 import (
+	"compress/gzip"
 	"fmt"
 	"io"
 	"strings"
@@ -18,10 +19,14 @@ var (
 )
 
 type encoder struct {
-	w io.Writer
+	w          io.Writer
+	compressed bool
 }
 
-func newEncoder(w io.Writer) *encoder {
+func newEncoder(w io.Writer, compressed bool) *encoder {
+	if compressed {
+		return &encoder{w: gzip.NewWriter(w), compressed: true}
+	}
 	return &encoder{w: w}
 }
 
@@ -38,6 +43,9 @@ func (enc *encoder) Encode(ev Event) error {
 	}
 	if _, err := io.WriteString(enc.w, "\n"); err != nil {
 		return fmt.Errorf("eventsource encode: %v", err)
+	}
+	if enc.compressed {
+		return enc.w.(*gzip.Writer).Flush()
 	}
 	return nil
 }
