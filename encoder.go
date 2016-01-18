@@ -25,20 +25,19 @@ func newEncoder(w io.Writer) *encoder {
 	return &encoder{w: w}
 }
 
-func (enc *encoder) Encode(ev Event) (err error) {
+func (enc *encoder) Encode(ev Event) error {
 	for _, field := range encFields {
 		prefix, value := field.prefix, field.value(ev)
 		if len(value) == 0 {
 			continue
 		}
 		value = strings.Replace(value, "\n", "\n"+prefix, -1)
-		if _, err = io.WriteString(enc.w, prefix+value+"\n"); err != nil {
-			err = fmt.Errorf("Eventsource: Encode: %s", err)
-			return
+		if _, err := io.WriteString(enc.w, prefix+value+"\n"); err != nil {
+			return fmt.Errorf("eventsource encode: %v", err)
 		}
 	}
-	if _, err = io.WriteString(enc.w, "\n"); err != nil {
-		err = fmt.Errorf("Eventsource: Encode: %s", err)
+	if _, err := io.WriteString(enc.w, "\n"); err != nil {
+		return fmt.Errorf("eventsource encode: %v", err)
 	}
-	return
+	return nil
 }
