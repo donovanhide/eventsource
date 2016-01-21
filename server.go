@@ -22,10 +22,11 @@ type registration struct {
 }
 
 type Server struct {
-	AllowCORS     bool // Enable all handlers to be accessible from any origin
-	ReplayAll     bool // Replay repository even if there's no Last-Event-Id specified
-	BufferSize    int  // How many messages do we let the client get behind before disconnecting
-	Gzip          bool // Enable compression if client can accept it
+	AllowCORS     bool        // Enable all handlers to be accessible from any origin
+	ReplayAll     bool        // Replay repository even if there's no Last-Event-Id specified
+	BufferSize    int         // How many messages do we let the client get behind before disconnecting
+	Gzip          bool        // Enable compression if client can accept it
+	Logger        *log.Logger // Logger is a logger that, when set, will be used for logging debug messages
 	registrations chan *registration
 	pub           chan *outbound
 	subs          chan *subscription
@@ -87,7 +88,9 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 				}
 				if err := enc.Encode(ev); err != nil {
 					srv.unregister <- sub
-					log.Println(err)
+					if srv.Logger != nil {
+						srv.Logger.Println(err)
+					}
 					return
 				}
 				flusher.Flush()

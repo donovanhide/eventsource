@@ -25,6 +25,8 @@ type Stream struct {
 	// action when an error is encountered. The stream will always attempt to continue,
 	// even if that involves reconnecting to the server.
 	Errors chan error
+	// Logger is a logger that, when set, will be used for logging debug messages
+	Logger *log.Logger
 }
 
 type SubscriptionError struct {
@@ -124,7 +126,9 @@ func (stream *Stream) stream(r io.ReadCloser) {
 	backoff := stream.retry
 	for {
 		time.Sleep(backoff)
-		log.Printf("Reconnecting in %0.4f secs", backoff.Seconds())
+		if stream.Logger != nil {
+			stream.Logger.Printf("Reconnecting in %0.4f secs\n", backoff.Seconds())
+		}
 
 		// NOTE: because of the defer we're opening the new connection
 		// before closing the old one. Shouldn't be a problem in practice,
