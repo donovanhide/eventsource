@@ -17,10 +17,13 @@ func (s *publication) Event() string { return s.event }
 func (s *publication) Data() string  { return s.data }
 func (s *publication) Retry() int64  { return s.retry }
 
+// A Decoder is capable of reading Events from a stream.
 type Decoder struct {
 	*bufio.Reader
 }
 
+// NewDecoder returns a new Decoder instance that reads events
+// with the given io.Reader.
 func NewDecoder(r io.Reader) *Decoder {
 	dec := &Decoder{bufio.NewReader(newNormaliser(r))}
 	return dec
