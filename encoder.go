@@ -18,19 +18,19 @@ var (
 	}
 )
 
-type encoder struct {
+type Encoder struct {
 	w          io.Writer
 	compressed bool
 }
 
-func newEncoder(w io.Writer, compressed bool) *encoder {
+func NewEncoder(w io.Writer, compressed bool) *Encoder {
 	if compressed {
-		return &encoder{w: gzip.NewWriter(w), compressed: true}
+		return &Encoder{w: gzip.NewWriter(w), compressed: true}
 	}
-	return &encoder{w: w}
+	return &Encoder{w: w}
 }
 
-func (enc *encoder) Encode(ev Event) error {
+func (enc *Encoder) Encode(ev Event) error {
 	for _, field := range encFields {
 		prefix, value := field.prefix, field.value(ev)
 		if len(value) == 0 {
