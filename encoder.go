@@ -18,19 +18,26 @@ var (
 	}
 )
 
-type encoder struct {
+// An Encoder is capable of writing Events to a stream. Optionally
+// Events can be gzip compressed in this process.
+type Encoder struct {
 	w          io.Writer
 	compressed bool
 }
 
-func newEncoder(w io.Writer, compressed bool) *encoder {
+// NewEncoder returns an Encoder for a given io.Writer.
+// When compressed is set to true, a gzip writer will be
+// created.
+func NewEncoder(w io.Writer, compressed bool) *Encoder {
 	if compressed {
-		return &encoder{w: gzip.NewWriter(w), compressed: true}
+		return &Encoder{w: gzip.NewWriter(w), compressed: true}
 	}
-	return &encoder{w: w}
+	return &Encoder{w: w}
 }
 
-func (enc *encoder) Encode(ev Event) error {
+// Encode writes an event in the format specified by the
+// server-sent events protocol.
+func (enc *Encoder) Encode(ev Event) error {
 	for _, field := range encFields {
 		prefix, value := field.prefix, field.value(ev)
 		if len(value) == 0 {

@@ -76,7 +76,7 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 		flusher := w.(http.Flusher)
 		notifier := w.(http.CloseNotifier)
 		flusher.Flush()
-		enc := newEncoder(w, useGzip)
+		enc := NewEncoder(w, useGzip)
 		for {
 			select {
 			case <-notifier.CloseNotify():
