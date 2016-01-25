@@ -17,12 +17,12 @@ func (s *publication) Event() string { return s.event }
 func (s *publication) Data() string  { return s.data }
 func (s *publication) Retry() int64  { return s.retry }
 
-type decoder struct {
+type Decoder struct {
 	*bufio.Reader
 }
 
-func newDecoder(r io.Reader) *decoder {
-	dec := &decoder{bufio.NewReader(newNormaliser(r))}
+func NewDecoder(r io.Reader) *Decoder {
+	dec := &Decoder{bufio.NewReader(newNormaliser(r))}
 	return dec
 }
 
@@ -31,7 +31,7 @@ func newDecoder(r io.Reader) *decoder {
 // Graceful disconnects (between events) are indicated by an io.EOF error.
 // Any error occuring mid-event is considered non-graceful and will
 // show up as some other error (most likely io.ErrUnexpectedEOF).
-func (dec *decoder) Decode() (Event, error) {
+func (dec *Decoder) Decode() (Event, error) {
 
 	// peek ahead before we start a new event so we can return EOFs
 	_, err := dec.Peek(1)
