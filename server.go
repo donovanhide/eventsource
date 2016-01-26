@@ -67,6 +67,8 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 		if useGzip {
 			h.Set("Content-Encoding", "gzip")
 		}
+		w.WriteHeader(http.StatusOK)
+
 		sub := &subscription{
 			channel:     channel,
 			lastEventId: req.Header.Get("Last-Event-ID"),
