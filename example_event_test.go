@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/donovanhide/eventsource"
+	"github.com/launchdarkly/eventsource"
 )
 
 type TimeEvent time.Time
