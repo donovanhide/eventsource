@@ -1,6 +1,7 @@
 package eventsource
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -14,7 +15,7 @@ import (
 // received retry delays and event id's.
 type Stream struct {
 	c           http.Client
-	url         string
+	req         *http.Request
 	lastEventId string
 	retry       time.Duration
 	// Events emits the events received by the stream
@@ -24,6 +25,8 @@ type Stream struct {
 	// action when an error is encountered. The stream will always attempt to continue,
 	// even if that involves reconnecting to the server.
 	Errors chan error
+	// Logger is a logger that, when set, will be used for logging debug messages
+	Logger *log.Logger
 }
 
 type SubscriptionError struct {
@@ -38,13 +41,25 @@ func (e SubscriptionError) Error() string {
 // Subscribe to the Events emitted from the specified url.
 // If lastEventId is non-empty it will be sent to the server in case it can replay missed events.
 func Subscribe(url, lastEventId string) (*Stream, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	return SubscribeWithRequest(lastEventId, req)
+}
+
+// SubscribeWithRequest will take an http.Request to setup the stream, allowing custom headers
+// to be specified, authentication to be configured, etc.
+func SubscribeWithRequest(lastEventId string, req *http.Request) (*Stream, error) {
 	stream := &Stream{
-		url:         url,
+		req:         req,
 		lastEventId: lastEventId,
 		retry:       (time.Millisecond * 3000),
 		Events:      make(chan Event),
 		Errors:      make(chan error),
 	}
+	stream.c.CheckRedirect = checkRedirect
+
 	r, err := stream.connect()
 	if err != nil {
 		return nil, err
@@ -53,18 +68,28 @@ func Subscribe(url, lastEventId string) (*Stream, error) {
 	return stream, nil
 }
 
+// Go's http package doesn't copy headers across when it encounters
+// redirects so we need to do that manually.
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	for k, vv := range via[0].Header {
+		for _, v := range vv {
+			req.Header.Add(k, v)
+		}
+	}
+	return nil
+}
+
 func (stream *Stream) connect() (r io.ReadCloser, err error) {
 	var resp *http.Response
-	var req *http.Request
-	if req, err = http.NewRequest("GET", stream.url, nil); err != nil {
-		return
-	}
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Accept", "text/event-stream")
+	stream.req.Header.Set("Cache-Control", "no-cache")
+	stream.req.Header.Set("Accept", "text/event-stream")
 	if len(stream.lastEventId) > 0 {
-		req.Header.Set("Last-Event-ID", stream.lastEventId)
+		stream.req.Header.Set("Last-Event-ID", stream.lastEventId)
 	}
-	if resp, err = stream.c.Do(req); err != nil {
+	if resp, err = stream.c.Do(stream.req); err != nil {
 		return
 	}
 	if resp.StatusCode != 200 {
@@ -80,7 +105,7 @@ func (stream *Stream) connect() (r io.ReadCloser, err error) {
 
 func (stream *Stream) stream(r io.ReadCloser) {
 	defer r.Close()
-	dec := newDecoder(r)
+	dec := NewDecoder(r)
 	for {
 		ev, err := dec.Decode()
 
@@ -101,7 +126,9 @@ func (stream *Stream) stream(r io.ReadCloser) {
 	backoff := stream.retry
 	for {
 		time.Sleep(backoff)
-		log.Printf("Reconnecting in %0.4f secs", backoff.Seconds())
+		if stream.Logger != nil {
+			stream.Logger.Printf("Reconnecting in %0.4f secs\n", backoff.Seconds())
+		}
 
 		// NOTE: because of the defer we're opening the new connection
 		// before closing the old one. Shouldn't be a problem in practice,

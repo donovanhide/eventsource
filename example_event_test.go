@@ -2,10 +2,11 @@ package eventsource_test
 
 import (
 	"fmt"
-	"github.com/donovanhide/eventsource"
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/donovanhide/eventsource"
 )
 
 type TimeEvent time.Time
@@ -30,6 +31,7 @@ func TimePublisher(srv *eventsource.Server) {
 
 func ExampleEvent() {
 	srv := eventsource.NewServer()
+	srv.Gzip = true
 	defer srv.Close()
 	l, err := net.Listen("tcp", ":8080")
 	if err != nil {
