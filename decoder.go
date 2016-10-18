@@ -34,6 +34,8 @@ func NewDecoder(r io.Reader) *Decoder {
 // Graceful disconnects (between events) are indicated by an io.EOF error.
 // Any error occuring mid-event is considered non-graceful and will
 // show up as some other error (most likely io.ErrUnexpectedEOF).
+// Decoding will return either a successfully parsed Event, a comment, or
+// an error.
 func (dec *Decoder) Decode() (Event, *string, error) {
 
 	// peek ahead before we start a new event so we can return EOFs
