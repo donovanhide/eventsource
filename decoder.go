@@ -34,7 +34,7 @@ func NewDecoder(r io.Reader) *Decoder {
 // Graceful disconnects (between events) are indicated by an io.EOF error.
 // Any error occuring mid-event is considered non-graceful and will
 // show up as some other error (most likely io.ErrUnexpectedEOF).
-func (dec *Decoder) Decode() (Event, error) {
+func (dec *Decoder) Decode() (Event, *string, error) {
 
 	// peek ahead before we start a new event so we can return EOFs
 	_, err := dec.Peek(1)
@@ -42,20 +42,21 @@ func (dec *Decoder) Decode() (Event, error) {
 		err = io.EOF
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	pub := new(publication)
 	for {
 		line, err := dec.ReadString('\n')
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if line == "\n" {
 			break
 		}
 		line = strings.TrimSuffix(line, "\n")
 		if strings.HasPrefix(line, ":") {
-			continue
+			comment := line[1:]
+			return nil, &comment, nil
 		}
 		sections := strings.SplitN(line, ":", 2)
 		field, value := sections[0], ""
@@ -74,5 +75,5 @@ func (dec *Decoder) Decode() (Event, error) {
 		}
 	}
 	pub.data = strings.TrimSuffix(pub.data, "\n")
-	return pub, nil
+	return pub, nil, nil
 }

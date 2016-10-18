@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net/http"
 	"time"
 )
@@ -25,8 +26,12 @@ type Stream struct {
 	// action when an error is encountered. The stream will always attempt to continue,
 	// even if that involves reconnecting to the server.
 	Errors chan error
+	// Comments emits any comment lines encountered while reading from the stream
+	Comments chan string
 	// Logger is a logger that, when set, will be used for logging debug messages
 	Logger *log.Logger
+	// The maximum time to wait between reconnection attempts
+	maxReconnectionTime time.Duration
 }
 
 type SubscriptionError struct {
@@ -52,11 +57,13 @@ func Subscribe(url, lastEventId string) (*Stream, error) {
 // to be specified, authentication to be configured, etc.
 func SubscribeWithRequest(lastEventId string, req *http.Request) (*Stream, error) {
 	stream := &Stream{
-		req:         req,
-		lastEventId: lastEventId,
-		retry:       (time.Millisecond * 3000),
-		Events:      make(chan Event),
-		Errors:      make(chan error),
+		req:                 req,
+		lastEventId:         lastEventId,
+		retry:               (time.Millisecond * 3000),
+		Events:              make(chan Event),
+		Errors:              make(chan error),
+		Comments:            make(chan string),
+		maxReconnectionTime: (time.Millisecond * 30000),
 	}
 	stream.c.CheckRedirect = checkRedirect
 
@@ -103,17 +110,51 @@ func (stream *Stream) connect() (r io.ReadCloser, err error) {
 	return
 }
 
+func (stream *Stream) backoffWithJitter(attempts int) time.Duration {
+	retry := stream.retry.Nanoseconds()
+	max := stream.maxReconnectionTime.Nanoseconds()
+
+	exp := pow(2, attempts)
+
+	jitterVal := retry * int64(exp)
+
+	if exp == 0 || jitterVal > max || jitterVal <= 0 {
+		jitterVal = max
+	}
+
+	return time.Duration(jitterVal/2 + rand.Int63n(jitterVal)/2)
+}
+
+// Integer power: compute a**b, from Knuth
+func pow(a, b int) int {
+	p := 1
+	for b > 0 {
+		if b&1 != 0 {
+			p *= a
+		}
+		b >>= 1
+		a *= a
+	}
+	return p
+}
+
 func (stream *Stream) stream(r io.ReadCloser) {
+	reconnectAttempts := 1
 	defer r.Close()
 	dec := NewDecoder(r)
 	for {
-		ev, err := dec.Decode()
+		ev, comment, err := dec.Decode()
 
 		if err != nil {
 			stream.Errors <- err
 			// respond to all errors by reconnecting and trying again
 			break
 		}
+
+		if comment != nil {
+			stream.Comments <- *comment
+		}
+
 		pub := ev.(*publication)
 		if pub.Retry() > 0 {
 			stream.retry = time.Duration(pub.Retry()) * time.Millisecond
@@ -123,7 +164,8 @@ func (stream *Stream) stream(r io.ReadCloser) {
 		}
 		stream.Events <- ev
 	}
-	backoff := stream.retry
+	backoff := stream.backoffWithJitter(reconnectAttempts)
+	reconnectAttempts += 1
 	for {
 		time.Sleep(backoff)
 		if stream.Logger != nil {
@@ -139,6 +181,5 @@ func (stream *Stream) stream(r io.ReadCloser) {
 			break
 		}
 		stream.Errors <- err
-		backoff *= 2
 	}
 }

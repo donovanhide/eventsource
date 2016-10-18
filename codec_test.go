@@ -33,7 +33,7 @@ func TestRoundTrip(t *testing.T) {
 		if buf.String() != tt.output {
 			t.Errorf("Expected: %s Got: %s", tt.output, buf.String())
 		}
-		ev, err := dec.Decode()
+		ev, _, err := dec.Decode()
 		if err != nil {
 			t.Fatal(err)
 		}
