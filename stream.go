@@ -167,9 +167,9 @@ func (stream *Stream) stream(r io.ReadCloser) {
 			stream.Logger.Printf("Received invalid event")
 		}
 	}
-	backoff := stream.backoffWithJitter(reconnectAttempts)
-	reconnectAttempts += 1
 	for {
+		backoff := stream.backoffWithJitter(reconnectAttempts)
+		reconnectAttempts += 1
 		time.Sleep(backoff)
 		if stream.Logger != nil {
 			stream.Logger.Printf("Reconnecting in %0.4f secs\n", backoff.Seconds())
