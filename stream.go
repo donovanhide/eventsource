@@ -155,14 +155,17 @@ func (stream *Stream) stream(r io.ReadCloser) {
 			stream.Comments <- *comment
 		}
 
-		pub := ev.(*publication)
-		if pub.Retry() > 0 {
-			stream.retry = time.Duration(pub.Retry()) * time.Millisecond
+		if pub, ok := ev.(*publication); ok {
+			if pub.Retry() > 0 {
+				stream.retry = time.Duration(pub.Retry()) * time.Millisecond
+			}
+			if len(pub.Id()) > 0 {
+				stream.lastEventId = pub.Id()
+			}
+			stream.Events <- ev
+		} else {
+			stream.Logger.Printf("Received invalid event")
 		}
-		if len(pub.Id()) > 0 {
-			stream.lastEventId = pub.Id()
-		}
-		stream.Events <- ev
 	}
 	backoff := stream.backoffWithJitter(reconnectAttempts)
 	reconnectAttempts += 1
