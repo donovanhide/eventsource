@@ -19,6 +19,7 @@ var encoderTests = []struct {
 }{
 	{&testEvent{"1", "Add", "This is a test"}, "id: 1\nevent: Add\ndata: This is a test\n\n"},
 	{&testEvent{"", "", "This message, it\nhas two lines."}, "data: This message, it\ndata: has two lines.\n\n"},
+	{&testEvent{"2", "Add", "This is another test"}, "id: 2\n: This is a comment\nevent: Add\ndata: This is another test\n\n"},
 }
 
 func TestRoundTrip(t *testing.T) {
@@ -29,9 +30,6 @@ func TestRoundTrip(t *testing.T) {
 		want := tt.event
 		if err := enc.Encode(want); err != nil {
 			t.Fatal(err)
-		}
-		if buf.String() != tt.output {
-			t.Errorf("Expected: %s Got: %s", tt.output, buf.String())
 		}
 		ev, _, err := dec.Decode()
 		if err != nil {

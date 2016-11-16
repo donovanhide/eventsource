@@ -169,7 +169,7 @@ func (stream *Stream) stream(r io.ReadCloser) {
 	}
 	for {
 		backoff := stream.backoffWithJitter(reconnectAttempts)
-		reconnectAttempts += 1
+		reconnectAttempts++
 		time.Sleep(backoff)
 		if stream.Logger != nil {
 			stream.Logger.Printf("Reconnecting in %0.4f secs\n", backoff.Seconds())
