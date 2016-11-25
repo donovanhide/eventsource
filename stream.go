@@ -97,7 +97,7 @@ func (stream *Stream) connect() (r io.ReadCloser, err error) {
 		stream.req.Header.Set("Last-Event-ID", stream.lastEventId)
 	}
 	if resp, err = stream.c.Do(stream.req); err != nil {
-		return
+		return err
 	}
 	if resp.StatusCode != 200 {
 		message, _ := ioutil.ReadAll(resp.Body)
