@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -18,15 +19,21 @@ type Stream struct {
 	req         *http.Request
 	lastEventId string
 	retry       time.Duration
+	timeout     time.Duration
 	// Events emits the events received by the stream
-	Events chan Event
+	Events            chan Event
+	EventsWithTimeout chan Event
 	// Errors emits any errors encountered while reading events from the stream.
 	// It's mainly for informative purposes - the client isn't required to take any
 	// action when an error is encountered. The stream will always attempt to continue,
 	// even if that involves reconnecting to the server.
-	Errors chan error
+	Errors            chan error
+	ErrorsWithTimeout chan error
+
 	// Logger is a logger that, when set, will be used for logging debug messages
-	Logger *log.Logger
+	Logger      *log.Logger
+	lastSuccess time.Time
+	wg          sync.WaitGroup
 }
 
 type SubscriptionError struct {
@@ -54,9 +61,7 @@ func SubscribeWithRequest(lastEventId string, request *http.Request) (*Stream, e
 	return SubscribeWith(lastEventId, http.DefaultClient, request)
 }
 
-// SubscribeWith takes a http client and request providing customization over both headers and
-// control over the http client settings (timeouts, tls, etc)
-func SubscribeWith(lastEventId string, client *http.Client, request *http.Request) (*Stream, error) {
+func newStream(lastEventId string, client *http.Client, request *http.Request, timeout time.Duration) *Stream {
 	stream := &Stream{
 		c:           client,
 		req:         request,
@@ -64,14 +69,50 @@ func SubscribeWith(lastEventId string, client *http.Client, request *http.Reques
 		retry:       (time.Millisecond * 3000),
 		Events:      make(chan Event),
 		Errors:      make(chan error),
+		timeout:     timeout,
 	}
+	if timeout != 0 {
+		stream.EventsWithTimeout = make(chan Event)
+		stream.ErrorsWithTimeout = make(chan error)
+	} else {
+		stream.Events = make(chan Event)
+		stream.Errors = make(chan error)
+	}
+	return stream
+}
+
+// SubscribeWith takes a http client and request providing customization over both headers and
+// control over the http client settings (timeouts, tls, etc)
+func SubscribeWith(lastEventId string, client *http.Client, request *http.Request) (*Stream, error) {
+	stream := newStream(lastEventId, client, request, 0)
 	stream.c.CheckRedirect = checkRedirect
 
 	r, err := stream.connect()
 	if err != nil {
 		return nil, err
 	}
+	stream.wg.Add(1)
 	go stream.stream(r)
+	return stream, nil
+}
+
+// SubscribeWithTimeout works similar with SubscribeWith, despite it accepts timeout as an option. When there is an error at the server side, it will retry until the timeout is reached and close the EventsWithTimeout and ErrorsWithTimeout channels
+func SubscribeWithTimeout(lastEventId string, client *http.Client, request *http.Request, timeout time.Duration) (*Stream, error) {
+	stream := newStream(lastEventId, client, request, timeout)
+	stream.c.CheckRedirect = checkRedirect
+
+	r, err := stream.connect()
+	if err != nil {
+		return nil, err
+	}
+	go func() {
+		defer close(stream.ErrorsWithTimeout)
+		defer close(stream.EventsWithTimeout)
+		stream.wg.Add(1)
+		stream.lastSuccess = time.Now()
+		stream.stream(r)
+		stream.wg.Wait()
+	}()
 	return stream, nil
 }
 
@@ -112,12 +153,16 @@ func (stream *Stream) connect() (r io.ReadCloser, err error) {
 
 func (stream *Stream) stream(r io.ReadCloser) {
 	defer r.Close()
+	defer stream.wg.Done()
 	dec := NewDecoder(r)
 	for {
 		ev, err := dec.Decode()
-
 		if err != nil {
-			stream.Errors <- err
+			if stream.timeout != 0 {
+				stream.ErrorsWithTimeout <- err
+			} else {
+				stream.Errors <- err
+			}
 			// respond to all errors by reconnecting and trying again
 			break
 		}
@@ -128,24 +173,38 @@ func (stream *Stream) stream(r io.ReadCloser) {
 		if len(pub.Id()) > 0 {
 			stream.lastEventId = pub.Id()
 		}
-		stream.Events <- ev
+		if stream.timeout != 0 {
+			stream.EventsWithTimeout <- ev
+		} else {
+			stream.Events <- ev
+		}
+		stream.lastSuccess = time.Now()
 	}
 	backoff := stream.retry
+	finishTime := stream.lastSuccess.Add(stream.timeout)
 	for {
+		if time.Now().After(finishTime) {
+			return
+		}
 		time.Sleep(backoff)
 		if stream.Logger != nil {
 			stream.Logger.Printf("Reconnecting in %0.4f secs\n", backoff.Seconds())
 		}
-
 		// NOTE: because of the defer we're opening the new connection
 		// before closing the old one. Shouldn't be a problem in practice,
 		// but something to be aware of.
 		next, err := stream.connect()
 		if err == nil {
+			stream.wg.Add(1)
 			go stream.stream(next)
 			break
 		}
-		stream.Errors <- err
+		if stream.timeout != 0 {
+			stream.ErrorsWithTimeout <- err
+		} else {
+			stream.Errors <- err
+		}
+
 		backoff *= 2
 	}
 }
