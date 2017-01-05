@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -27,6 +28,7 @@ type Stream struct {
 	Errors chan error
 	// Logger is a logger that, when set, will be used for logging debug messages
 	Logger *log.Logger
+	wg     sync.WaitGroup
 }
 
 type SubscriptionError struct {
@@ -71,7 +73,13 @@ func SubscribeWith(lastEventId string, client *http.Client, request *http.Reques
 	if err != nil {
 		return nil, err
 	}
-	go stream.stream(r)
+	go func() {
+		defer close(stream.Errors)
+		defer close(stream.Events)
+		stream.wg.Add(1)
+		stream.stream(r)
+		stream.wg.Wait()
+	}()
 	return stream, nil
 }
 
@@ -112,7 +120,13 @@ func (stream *Stream) connect() (r io.ReadCloser, err error) {
 
 func (stream *Stream) stream(r io.ReadCloser) {
 	defer r.Close()
+	defer stream.wg.Done()
+
+	var deadline time.Time
+	lastSuccess := time.Now()
 	dec := NewDecoder(r)
+	context := stream.req.Context()
+	timeout, hasTimeout := context.Value("timeout").(time.Duration)
 	for {
 		ev, err := dec.Decode()
 
@@ -129,9 +143,19 @@ func (stream *Stream) stream(r io.ReadCloser) {
 			stream.lastEventId = pub.Id()
 		}
 		stream.Events <- ev
+		if hasTimeout {
+			lastSuccess = time.Now()
+		}
+
 	}
 	backoff := stream.retry
+	if hasTimeout {
+		deadline = lastSuccess.Add(timeout)
+	}
 	for {
+		if hasTimeout && time.Now().After(deadline) {
+			return
+		}
 		time.Sleep(backoff)
 		if stream.Logger != nil {
 			stream.Logger.Printf("Reconnecting in %0.4f secs\n", backoff.Seconds())
@@ -142,6 +166,7 @@ func (stream *Stream) stream(r io.ReadCloser) {
 		// but something to be aware of.
 		next, err := stream.connect()
 		if err == nil {
+			stream.wg.Add(1)
 			go stream.stream(next)
 			break
 		}
