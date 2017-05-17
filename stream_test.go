@@ -1,7 +1,6 @@
 package eventsource
 
 import (
-	"fmt"
 	"io"
 	"net/http/httptest"
 	"reflect"
@@ -22,7 +21,7 @@ func TestStreamSubscribeEventsChan(t *testing.T) {
 	defer httpServer.Close()
 	defer server.Close()
 
-	stream := mustSubscribe(httpServer.URL, "")
+	stream := mustSubscribe(t, httpServer.URL, "")
 
 	publishedEvent := &publication{id: "123"}
 	server.Publish([]string{eventChannelName}, publishedEvent)
@@ -43,7 +42,7 @@ func TestStreamSubscribeErrorsChan(t *testing.T) {
 
 	defer httpServer.Close()
 
-	stream := mustSubscribe(httpServer.URL, "")
+	stream := mustSubscribe(t, httpServer.URL, "")
 	server.Close()
 
 	select {
@@ -64,7 +63,7 @@ func TestStreamClose(t *testing.T) {
 	defer httpServer.Close()
 	defer server.Close()
 
-	stream := mustSubscribe(httpServer.URL, "")
+	stream := mustSubscribe(t, httpServer.URL, "")
 	stream.Close()
 	// its safe to Close the stream multiple times
 	stream.Close()
@@ -88,10 +87,10 @@ func TestStreamClose(t *testing.T) {
 	}
 }
 
-func mustSubscribe(url, lastEventId string) *Stream {
+func mustSubscribe(t *testing.T, url, lastEventId string) *Stream {
 	stream, err := Subscribe(url, lastEventId)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to subscribe: %s", err))
+		t.Fatalf("Failed to subscribe: %s", err)
 	}
 	return stream
 }

@@ -80,7 +80,7 @@ func SubscribeWith(lastEventId string, client *http.Client, request *http.Reques
 	return stream, nil
 }
 
-// Close will close the stream. It is safe for concurrent access.
+// Close will close the stream. It is safe for concurrent access and can be called multiple times.
 func (stream *Stream) Close() {
 	if stream.isStreamClosed() {
 		return
