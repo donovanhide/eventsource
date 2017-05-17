@@ -63,7 +63,9 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 		if srv.AllowCORS {
 			h.Set("Access-Control-Allow-Origin", "*")
 		}
-		useGzip := srv.Gzip && strings.Contains(req.Header.Get("Accept-Encoding"), "gzip")
+		useGzip := srv.Gzip &&
+			strings.Contains(req.Header.Get("Accept-Encoding"), "gzip") &&
+			h.Get("Content-Encoding") != "gzip"
 		if useGzip {
 			h.Set("Content-Encoding", "gzip")
 		}
