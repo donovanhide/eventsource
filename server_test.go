@@ -3,6 +3,7 @@ package eventsource
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 )
@@ -31,4 +32,49 @@ func TestNewServerHandlerRespondsAfterClose(t *testing.T) {
 	case <-time.After(250 * time.Millisecond):
 		t.Errorf("Did not receive response in time")
 	}
+}
+
+func TestSubscriptionChanGetsClosedWhenBufferIsFull(t *testing.T) {
+	// This is a regression test to make sure that when the receiving channel is full, we don't have a race condition that can write to a closed channel, causing panic.
+	for i := 0; i < 1000; i++ {
+		srv := NewServer()
+		outChan := make(chan Event, 1)
+		testChannelName := "foo"
+		sub := &subscription{
+			channel: testChannelName,
+			out:     outChan,
+		}
+		srv.subs <- sub
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+		// simulates filling up of buffer
+		for i := 0; i < 100; i++ {
+			go func() {
+				wg.Wait()
+				srv.pub <- &outbound{
+					channels: []string{testChannelName},
+				}
+			}()
+		}
+		wg.Done()
+	}
+}
+
+func TestIdempotentUnregister(t *testing.T) {
+	srv := NewServer()
+	outChan := make(chan Event, 1)
+	testChannelName := "foo"
+	sub := &subscription{
+		channel: testChannelName,
+		out:     outChan,
+	}
+	srv.subs <- sub
+	// overflow the buffers, so we close the subscription channel
+	for i := 0; i < 2; i++ {
+		srv.pub <- &outbound{
+			channels: []string{testChannelName},
+		}
+	}
+	//simulate client disconnecting
+	srv.unregister <- sub
 }
