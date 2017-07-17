@@ -142,13 +142,14 @@ func (srv *Server) run() {
 			repos[reg.channel] = reg.repository
 		case sub := <-srv.unregister:
 			delete(subs[sub.channel], sub)
+			close(sub.out)
 		case pub := <-srv.pub:
 			for _, c := range pub.channels {
 				for s := range subs[c] {
 					select {
 					case s.out <- pub.event:
 					default:
-						srv.unregister <- s
+						delete(subs[s.channel], s)
 						close(s.out)
 					}
 
