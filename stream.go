@@ -153,11 +153,17 @@ func (stream *Stream) receiveEvents(r io.ReadCloser) {
 
 	for {
 		ev, err := dec.Decode()
-		if stream.isStreamClosed() {
-			return
-		}
 		if err != nil {
+			// Lock the closed mutex and make sure the stream hasn't already
+			// closed before we attempt to write to the errors channel.  We also
+			// hold on to the lock while writing to make sure it isn't closed
+			// under us.
+			stream.isClosedMutex.RLock()
+			if stream.isClosed {
+				return
+			}
 			stream.Errors <- err
+			stream.isClosedMutex.RUnlock()
 			return
 		}
 
@@ -168,7 +174,17 @@ func (stream *Stream) receiveEvents(r io.ReadCloser) {
 		if len(pub.Id()) > 0 {
 			stream.lastEventId = pub.Id()
 		}
+
+		// Lock the closed mutex and check to see if the stream has closed. We
+		// hold on to the lock while writing to make sure the stream doesn't
+		// get closed between the check and when we try to write to the events
+		// channel.
+		stream.isClosedMutex.RLock()
+		if stream.isClosed {
+			return
+		}
 		stream.Events <- ev
+		stream.isClosedMutex.RUnlock()
 	}
 }
 
