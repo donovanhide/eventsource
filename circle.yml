@@ -1,3 +1,4 @@
 test:
   post:
     - go vet ./...
+
