@@ -15,7 +15,7 @@ var (
 	expected     = []string{"line1", "line2", "line3"}
 )
 
-func Testnormaliser(t *testing.T) {
+func TestNormaliser(t *testing.T) {
 	for i, first := range endings {
 		for j, second := range endings {
 			for k, suffix := range suffixes {
