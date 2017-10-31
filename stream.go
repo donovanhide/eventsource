@@ -53,10 +53,14 @@ func Subscribe(url, lastEventId string) (*Stream, error) {
 	return SubscribeWithRequest(lastEventId, req)
 }
 
+var redirectingClient = &http.Client{
+	CheckRedirect: checkRedirect,
+}
+
 // SubscribeWithRequest will take an http.Request to setup the stream, allowing custom headers
 // to be specified, authentication to be configured, etc.
 func SubscribeWithRequest(lastEventId string, request *http.Request) (*Stream, error) {
-	return SubscribeWith(lastEventId, http.DefaultClient, request)
+	return SubscribeWith(lastEventId, redirectingClient, request)
 }
 
 // SubscribeWith takes a http client and request providing customization over both headers and
@@ -70,7 +74,6 @@ func SubscribeWith(lastEventId string, client *http.Client, request *http.Reques
 		Events:      make(chan Event),
 		Errors:      make(chan error),
 	}
-	stream.c.CheckRedirect = checkRedirect
 
 	r, err := stream.connect()
 	if err != nil {

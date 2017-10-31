@@ -1,0 +1,4 @@
+test:
+  post:
+    - go vet ./...
+

@@ -17,13 +17,13 @@ func NewSliceRepository() *SliceRepository {
 	}
 }
 
-func (repo SliceRepository) indexOfEvent(channel, id string) int {
+func (repo *SliceRepository) indexOfEvent(channel, id string) int {
 	return sort.Search(len(repo.events[channel]), func(i int) bool {
 		return repo.events[channel][i].Id() >= id
 	})
 }
 
-func (repo SliceRepository) Replay(channel, id string) (out chan Event) {
+func (repo *SliceRepository) Replay(channel, id string) (out chan Event) {
 	out = make(chan Event)
 	go func() {
 		defer close(out)
