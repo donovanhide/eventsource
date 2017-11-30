@@ -1,7 +1,6 @@
 package eventsource
 
 import (
-	"log"
 	"net/http"
 	"strings"
 )
@@ -22,11 +21,11 @@ type registration struct {
 }
 
 type Server struct {
-	AllowCORS     bool        // Enable all handlers to be accessible from any origin
-	ReplayAll     bool        // Replay repository even if there's no Last-Event-Id specified
-	BufferSize    int         // How many messages do we let the client get behind before disconnecting
-	Gzip          bool        // Enable compression if client can accept it
-	Logger        *log.Logger // Logger is a logger that, when set, will be used for logging debug messages
+	AllowCORS     bool   // Enable all handlers to be accessible from any origin
+	ReplayAll     bool   // Replay repository even if there's no Last-Event-Id specified
+	BufferSize    int    // How many messages do we let the client get behind before disconnecting
+	Gzip          bool   // Enable compression if client can accept it
+	Logger        Logger // Logger is a logger that, when set, will be used for logging debug messages
 	registrations chan *registration
 	pub           chan *outbound
 	subs          chan *subscription

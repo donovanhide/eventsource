@@ -23,3 +23,8 @@ type Repository interface {
 	// Gets the Events which should follow on from the specified channel and event id.
 	Replay(channel, id string) chan Event
 }
+
+type Logger interface {
+	Println(...interface{})
+	Printf(string, ...interface{})
+}
