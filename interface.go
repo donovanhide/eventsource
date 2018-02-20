@@ -17,6 +17,11 @@ type Event interface {
 	Data() string
 }
 
+type Comment interface {
+	// The comment string to be sent after a colon.
+	Comment() string
+}
+
 // If history is required, this interface will allow clients to reply previous events through the server.
 // Both methods can be called from different goroutines concurrently, so you must make sure they are go-routine safe.
 type Repository interface {
