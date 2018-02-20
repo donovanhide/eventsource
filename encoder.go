@@ -35,21 +35,31 @@ func NewEncoder(w io.Writer, compressed bool) *Encoder {
 	return &Encoder{w: w}
 }
 
-// Encode writes an event in the format specified by the
+// Encode writes an event or comment in the format specified by the
 // server-sent events protocol.
-func (enc *Encoder) Encode(ev Event) error {
-	for _, field := range encFields {
-		prefix, value := field.prefix, field.value(ev)
-		if len(value) == 0 {
-			continue
+func (enc *Encoder) Encode(ec eventOrComment) error {
+	switch item := ec.(type) {
+	case Event:
+		for _, field := range encFields {
+			prefix, value := field.prefix, field.value(item)
+			if len(value) == 0 {
+				continue
+			}
+			value = strings.Replace(value, "\n", "\n"+prefix, -1)
+			if _, err := io.WriteString(enc.w, prefix+value+"\n"); err != nil {
+				return fmt.Errorf("eventsource encode: %v", err)
+			}
 		}
-		value = strings.Replace(value, "\n", "\n"+prefix, -1)
-		if _, err := io.WriteString(enc.w, prefix+value+"\n"); err != nil {
+		if _, err := io.WriteString(enc.w, "\n"); err != nil {
 			return fmt.Errorf("eventsource encode: %v", err)
 		}
-	}
-	if _, err := io.WriteString(enc.w, "\n"); err != nil {
-		return fmt.Errorf("eventsource encode: %v", err)
+	case comment:
+		line := ":" + item.value + "\n"
+		if _, err := io.WriteString(enc.w, line); err != nil {
+			return fmt.Errorf("eventsource encode: %v", err)
+		}
+	default:
+		return fmt.Errorf("unexpected parameter to Encode: %v", ec)
 	}
 	if enc.compressed {
 		return enc.w.(*gzip.Writer).Flush()

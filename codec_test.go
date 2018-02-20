@@ -42,3 +42,26 @@ func TestRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestEncodeComment(t *testing.T) {
+	buf := new(bytes.Buffer)
+	enc := NewEncoder(buf, false)
+	text := "This is a comment"
+	comm := comment{value: "This is a comment"}
+	expected := ":" + text + "\n"
+	if err := enc.Encode(comm); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != expected {
+		t.Errorf("Expected: %s Got: %s", expected, buf.String())
+	}
+}
+
+func TestEncodeUnknownValue(t *testing.T) {
+	buf := new(bytes.Buffer)
+	enc := NewEncoder(buf, false)
+	badValue := 3
+	if err := enc.Encode(badValue); err == nil {
+		t.Error("Expected error")
+	}
+}

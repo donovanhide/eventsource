@@ -8,16 +8,23 @@ import (
 type subscription struct {
 	channel     string
 	lastEventId string
-	out         chan Event
+	out         chan interface{}
 }
 
+type eventOrComment interface{}
+
 type outbound struct {
-	channels []string
-	event    Event
+	channels       []string
+	eventOrComment eventOrComment
 }
+
 type registration struct {
 	channel    string
 	repository Repository
+}
+
+type comment struct {
+	value string
 }
 
 type Server struct {
@@ -71,7 +78,7 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 		sub := &subscription{
 			channel:     channel,
 			lastEventId: req.Header.Get("Last-Event-ID"),
-			out:         make(chan Event, srv.BufferSize),
+			out:         make(chan interface{}, srv.BufferSize),
 		}
 		srv.subs <- sub
 		flusher := w.(http.Flusher)
@@ -111,8 +118,16 @@ func (srv *Server) Register(channel string, repo Repository) {
 // Publish an event with the specified id to one or more channels
 func (srv *Server) Publish(channels []string, ev Event) {
 	srv.pub <- &outbound{
-		channels: channels,
-		event:    ev,
+		channels:       channels,
+		eventOrComment: ev,
+	}
+}
+
+// Publish a comment to one or more channels
+func (srv *Server) PublishComment(channels []string, text string) {
+	srv.pub <- &outbound{
+		channels:       channels,
+		eventOrComment: comment{value: text},
 	}
 }
 
@@ -135,7 +150,7 @@ func (srv *Server) run() {
 			for _, c := range pub.channels {
 				for s := range subs[c] {
 					select {
-					case s.out <- pub.event:
+					case s.out <- pub.eventOrComment:
 					default:
 						srv.unregister <- s
 						close(s.out)
