@@ -38,9 +38,10 @@ func NewEncoder(w io.Writer, compressed bool) *Encoder {
 // Encode writes an event in the format specified by the
 // server-sent events protocol.
 func (enc *Encoder) Encode(ec interface{}) error {
-	if ev, ok := ec.(Event); ok {
+	switch item := ec.(type) {
+	case Event:
 		for _, field := range encFields {
-			prefix, value := field.prefix, field.value(ev)
+			prefix, value := field.prefix, field.value(item)
 			if len(value) == 0 {
 				continue
 			}
@@ -52,8 +53,8 @@ func (enc *Encoder) Encode(ec interface{}) error {
 		if _, err := io.WriteString(enc.w, "\n"); err != nil {
 			return fmt.Errorf("eventsource encode: %v", err)
 		}
-	} else if com, ok := ec.(Comment); ok {
-		line := ":" + com.Comment() + "\n"
+	case Comment:
+		line := ":" + item.Comment() + "\n"
 		if _, err := io.WriteString(enc.w, line); err != nil {
 			return fmt.Errorf("eventsource encode: %v", err)
 		}
