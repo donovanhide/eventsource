@@ -37,7 +37,7 @@ func NewEncoder(w io.Writer, compressed bool) *Encoder {
 
 // Encode writes an event or comment in the format specified by the
 // server-sent events protocol.
-func (enc *Encoder) Encode(ec interface{}) error {
+func (enc *Encoder) Encode(ec eventOrComment) error {
 	switch item := ec.(type) {
 	case Event:
 		for _, field := range encFields {

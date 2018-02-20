@@ -11,9 +11,11 @@ type subscription struct {
 	out         chan interface{}
 }
 
+type eventOrComment interface{}
+
 type outbound struct {
 	channels       []string
-	eventOrComment interface{}
+	eventOrComment eventOrComment
 }
 
 type registration struct {
