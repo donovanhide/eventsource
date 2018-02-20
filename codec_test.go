@@ -13,6 +13,12 @@ func (e *testEvent) Id() string    { return e.id }
 func (e *testEvent) Event() string { return e.event }
 func (e *testEvent) Data() string  { return e.data }
 
+type testComment struct {
+	comment string
+}
+
+func (c *testComment) Comment() string { return c.comment }
+
 var encoderTests = []struct {
 	event  *testEvent
 	output string
@@ -40,5 +46,19 @@ func TestRoundTrip(t *testing.T) {
 		if ev.Id() != want.Id() || ev.Event() != want.Event() || ev.Data() != want.Data() {
 			t.Errorf("Expected: %s %s %s Got: %s %s %s", want.Id(), want.Event(), want.Data(), ev.Id(), ev.Event(), ev.Data())
 		}
+	}
+}
+
+func TestEncodeComment(t *testing.T) {
+	buf := new(bytes.Buffer)
+	enc := NewEncoder(buf, false)
+	text := "This is a comment"
+	comm := testComment{comment: "This is a comment"}
+	expected := ":" + text + "\n"
+	if err := enc.Encode(&comm); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != expected {
+		t.Errorf("Expected: %s Got: %s", expected, buf.String())
 	}
 }
