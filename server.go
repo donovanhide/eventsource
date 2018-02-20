@@ -21,6 +21,10 @@ type registration struct {
 	repository Repository
 }
 
+type comment struct {
+	value string
+}
+
 type Server struct {
 	AllowCORS     bool   // Enable all handlers to be accessible from any origin
 	ReplayAll     bool   // Replay repository even if there's no Last-Event-Id specified
@@ -118,10 +122,10 @@ func (srv *Server) Publish(channels []string, ev Event) {
 }
 
 // Publish a comment to one or more channels
-func (srv *Server) PublishComment(channels []string, com Comment) {
+func (srv *Server) PublishComment(channels []string, text string) {
 	srv.pub <- &outbound{
 		channels:       channels,
-		eventOrComment: com,
+		eventOrComment: comment{value: text},
 	}
 }
 

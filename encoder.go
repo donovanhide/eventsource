@@ -35,7 +35,7 @@ func NewEncoder(w io.Writer, compressed bool) *Encoder {
 	return &Encoder{w: w}
 }
 
-// Encode writes an event in the format specified by the
+// Encode writes an event or comment in the format specified by the
 // server-sent events protocol.
 func (enc *Encoder) Encode(ec interface{}) error {
 	switch item := ec.(type) {
@@ -53,11 +53,13 @@ func (enc *Encoder) Encode(ec interface{}) error {
 		if _, err := io.WriteString(enc.w, "\n"); err != nil {
 			return fmt.Errorf("eventsource encode: %v", err)
 		}
-	case Comment:
-		line := ":" + item.Comment() + "\n"
+	case comment:
+		line := ":" + item.value + "\n"
 		if _, err := io.WriteString(enc.w, line); err != nil {
 			return fmt.Errorf("eventsource encode: %v", err)
 		}
+	default:
+		return fmt.Errorf("unexpected parameter to Encode: %v", ec)
 	}
 	if enc.compressed {
 		return enc.w.(*gzip.Writer).Flush()
