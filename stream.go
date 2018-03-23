@@ -117,6 +117,7 @@ func (stream *Stream) connect() (r io.ReadCloser, err error) {
 			Code:    resp.StatusCode,
 			Message: string(message),
 		}
+		resp.Body.Close()
 	}
 	r = resp.Body
 	return
