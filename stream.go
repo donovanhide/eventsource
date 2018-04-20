@@ -26,11 +26,9 @@ type Stream struct {
 	// even if that involves reconnecting to the server.
 	Errors chan error
 	// Logger is a logger that, when set, will be used for logging debug messages
-	Logger Logger
-	// isClosed is a marker that the stream is/should be closed
-	isClosed bool
-	// isClosedMutex is a mutex protecting concurrent read/write access of isClosed
-	isClosedMutex sync.RWMutex
+	Logger    Logger
+	closer    chan struct{}
+	closeOnce sync.Once
 }
 
 type SubscriptionError struct {
@@ -68,6 +66,7 @@ func SubscribeWith(lastEventId string, client *http.Client, request *http.Reques
 		retry:       time.Millisecond * 3000,
 		Events:      make(chan Event),
 		Errors:      make(chan error),
+		closer:      make(chan struct{}),
 	}
 	stream.c.CheckRedirect = checkRedirect
 
@@ -81,25 +80,9 @@ func SubscribeWith(lastEventId string, client *http.Client, request *http.Reques
 
 // Close will close the stream. It is safe for concurrent access and can be called multiple times.
 func (stream *Stream) Close() {
-	if stream.isStreamClosed() {
-		return
-	}
-
-	stream.markStreamClosed()
-	close(stream.Errors)
-	close(stream.Events)
-}
-
-func (stream *Stream) isStreamClosed() bool {
-	stream.isClosedMutex.RLock()
-	defer stream.isClosedMutex.RUnlock()
-	return stream.isClosed
-}
-
-func (stream *Stream) markStreamClosed() {
-	stream.isClosedMutex.Lock()
-	defer stream.isClosedMutex.Unlock()
-	stream.isClosed = true
+	stream.closeOnce.Do(func() {
+		close(stream.closer)
+	})
 }
 
 // Go's http package doesn't copy headers across when it encounters
@@ -138,58 +121,69 @@ func (stream *Stream) connect() (r io.ReadCloser, err error) {
 }
 
 func (stream *Stream) stream(r io.ReadCloser) {
-	defer r.Close()
+	retryChan := make(chan struct{}, 1)
 
-	// receives events until an error is encountered
-	stream.receiveEvents(r)
-
-	// tries to reconnect and start the stream again
-	stream.retryRestartStream()
-}
-
-func (stream *Stream) receiveEvents(r io.ReadCloser) {
-	dec := NewDecoder(r)
-
-	for {
-		ev, err := dec.Decode()
-		if stream.isStreamClosed() {
-			return
-		}
-		if err != nil {
-			stream.Errors <- err
-			return
-		}
-
-		pub := ev.(*publication)
-		if pub.Retry() > 0 {
-			stream.retry = time.Duration(pub.Retry()) * time.Millisecond
-		}
-		if len(pub.Id()) > 0 {
-			stream.lastEventId = pub.Id()
-		}
-		stream.Events <- ev
-	}
-}
-
-func (stream *Stream) retryRestartStream() {
-	backoff := stream.retry
-	for {
+	scheduleRetry := func(backoff *time.Duration) {
 		if stream.Logger != nil {
 			stream.Logger.Printf("Reconnecting in %0.4f secs\n", backoff.Seconds())
 		}
-		time.Sleep(backoff)
-		if stream.isStreamClosed() {
-			return
-		}
-		// NOTE: because of the defer we're opening the new connection
-		// before closing the old one. Shouldn't be a problem in practice,
-		// but something to be aware of.
-		r, err := stream.connect()
-		if err == nil {
-			go stream.stream(r)
-			return
-		}
-		stream.Errors <- err
-		backoff *= 2
+		time.AfterFunc(*backoff, func() {
+			retryChan <- struct{}{}
+		})
+		*backoff *= 2
 	}
+
+NewStream:
+	for {
+		backoff := stream.retry
+		dec := NewDecoder(r)
+		events := make(chan Event)
+		errs := make(chan error)
+
+		go func() {
+			for {
+				ev, err := dec.Decode()
+
+				if err != nil {
+					errs <- err
+					return
+				}
+				events <- ev
+			}
+		}()
+
+		for {
+			select {
+			case err := <-errs:
+				stream.Errors <- err
+				r.Close()
+				scheduleRetry(&backoff)
+			case ev := <-events:
+				pub := ev.(*publication)
+				if pub.Retry() > 0 {
+					backoff = time.Duration(pub.Retry()) * time.Millisecond
+				}
+				if len(pub.Id()) > 0 {
+					stream.lastEventId = pub.Id()
+				}
+				stream.Events <- ev
+			case _, ok := <-stream.closer:
+				if !ok {
+					break NewStream
+				}
+			case <-retryChan:
+				var err error
+				r, err = stream.connect()
+				if err != nil {
+					stream.Errors <- err
+					scheduleRetry(&backoff)
+				}
+				continue NewStream
+			}
+		}
+	}
+
+	close(stream.Errors)
+	close(stream.Events)
+	r.Close()
 }

@@ -2,7 +2,9 @@ package eventsource
 
 import (
 	"io"
+	"log"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -87,10 +89,63 @@ func TestStreamClose(t *testing.T) {
 	}
 }
 
+func TestStreamReconnect(t *testing.T) {
+	server := NewServer()
+	httpServer := httptest.NewServer(server.Handler(eventChannelName))
+	// The server has to be closed before the httpServer is closed.
+	// Otherwise the httpServer has still an open connection and it can not close.
+	defer httpServer.Close()
+	defer server.Close()
+
+	stream := mustSubscribe(t, httpServer.URL, "")
+	stream.retry = time.Millisecond
+	publishedEvent := &publication{id: "123"}
+	server.Publish([]string{eventChannelName}, publishedEvent)
+
+	select {
+	case <-stream.Events:
+	case <-time.After(timeToWaitForEvent):
+		t.Error("Timed out waiting for event")
+		return
+	}
+
+	httpServer.CloseClientConnections()
+
+	// Expect at least one error
+	select {
+	case <-stream.Errors:
+	case <-time.After(timeToWaitForEvent):
+		t.Error("Timed out waiting for event")
+		return
+	}
+
+	go func() {
+		// Publish again after we've reconnected
+		time.Sleep(time.Second)
+		server.Publish([]string{eventChannelName}, publishedEvent)
+	}()
+
+	// Consume errors until we've got another event
+	for {
+		select {
+		case <-stream.Errors:
+		case <-time.After(2 * time.Second):
+			t.Error("Timed out waiting for event")
+			return
+		case receivedEvent := <-stream.Events:
+			if !reflect.DeepEqual(receivedEvent, publishedEvent) {
+				t.Errorf("got event %+v, want %+v", receivedEvent, publishedEvent)
+			}
+			return
+		}
+	}
+}
+
 func mustSubscribe(t *testing.T, url, lastEventId string) *Stream {
 	stream, err := Subscribe(url, lastEventId)
 	if err != nil {
 		t.Fatalf("Failed to subscribe: %s", err)
 	}
+	stream.Logger = log.New(os.Stderr, "", log.LstdFlags)
 	return stream
 }
