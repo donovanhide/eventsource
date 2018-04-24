@@ -157,6 +157,7 @@ NewStream:
 			case err := <-errs:
 				stream.Errors <- err
 				r.Close()
+				r = nil
 				scheduleRetry(&backoff)
 			case ev := <-events:
 				pub := ev.(*publication)
@@ -185,5 +186,7 @@ NewStream:
 
 	close(stream.Errors)
 	close(stream.Events)
-	r.Close()
+	if r != nil {
+		r.Close()
+	}
 }

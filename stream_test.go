@@ -141,6 +141,54 @@ func TestStreamReconnect(t *testing.T) {
 	}
 }
 
+func TestStreamCloseWhileReconnecting(t *testing.T) {
+	server := NewServer()
+	httpServer := httptest.NewServer(server.Handler(eventChannelName))
+
+	stream := mustSubscribe(t, httpServer.URL, "")
+	stream.retry = time.Hour
+	publishedEvent := &publication{id: "123"}
+	server.Publish([]string{eventChannelName}, publishedEvent)
+
+	select {
+	case <-stream.Events:
+	case <-time.After(timeToWaitForEvent):
+		t.Error("Timed out waiting for event")
+		return
+	}
+
+	server.Close()
+	httpServer.Close()
+
+	// Expect at least one error
+	select {
+	case <-stream.Errors:
+	case <-time.After(timeToWaitForEvent):
+		t.Error("Timed out waiting for event")
+		return
+	}
+
+	stream.Close()
+
+	select {
+	case _, ok := <-stream.Events:
+		if ok {
+			t.Error("Expected stream.Events channel to be closed. Is still open.")
+		}
+	case <-time.After(timeToWaitForEvent):
+		t.Error("Timed out waiting for stream.Events channel to close")
+	}
+
+	select {
+	case _, ok := <-stream.Errors:
+		if ok {
+			t.Error("Expected stream.Errors channel to be closed. Is still open.")
+		}
+	case <-time.After(timeToWaitForEvent):
+		t.Error("Timed out waiting for stream.Errors channel to close")
+	}
+}
+
 func mustSubscribe(t *testing.T, url, lastEventId string) *Stream {
 	stream, err := Subscribe(url, lastEventId)
 	if err != nil {
