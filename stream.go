@@ -175,8 +175,8 @@ NewStream:
 				stream.Events <- ev
 			case <-stream.closer:
 				if r != nil {
-					// allow the decoding goroutine to terminate
 					r.Close()
+					// allow the decoding goroutine to terminate
 					for {
 						if _, ok := <-errs; !ok {
 							break
