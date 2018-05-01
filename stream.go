@@ -136,21 +136,25 @@ func (stream *Stream) stream(r io.ReadCloser) {
 NewStream:
 	for {
 		backoff := stream.retry
-		dec := NewDecoder(r)
 		events := make(chan Event)
 		errs := make(chan error)
 
-		go func() {
-			for {
-				ev, err := dec.Decode()
+		if r != nil {
+			dec := NewDecoder(r)
+			go func() {
+				for {
+					ev, err := dec.Decode()
 
-				if err != nil {
-					errs <- err
-					return
+					if err != nil {
+						errs <- err
+						close(errs)
+						close(events)
+						return
+					}
+					events <- ev
 				}
-				events <- ev
-			}
-		}()
+			}()
+		}
 
 		for {
 			select {
@@ -159,6 +163,7 @@ NewStream:
 				r.Close()
 				r = nil
 				scheduleRetry(&backoff)
+				continue NewStream
 			case ev := <-events:
 				pub := ev.(*publication)
 				if pub.Retry() > 0 {
@@ -168,10 +173,22 @@ NewStream:
 					stream.lastEventId = pub.Id()
 				}
 				stream.Events <- ev
-			case _, ok := <-stream.closer:
-				if !ok {
-					break NewStream
+			case <-stream.closer:
+				if r != nil {
+					// allow the decoding goroutine to terminate
+					r.Close()
+					for {
+						if _, ok := <-errs; !ok {
+							break
+						}
+					}
+					for {
+						if _, ok := <-events; !ok {
+							break
+						}
+					}
 				}
+				break NewStream
 			case <-retryChan:
 				var err error
 				r, err = stream.connect()
@@ -186,7 +203,4 @@ NewStream:
 
 	close(stream.Errors)
 	close(stream.Events)
-	if r != nil {
-		r.Close()
-	}
 }
