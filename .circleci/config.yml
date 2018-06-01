@@ -1,0 +1,33 @@
+version: 2
+
+jobs:
+  go-test:
+    working_directory: /go/src/github.com/launchdarkly/eventsource
+
+    docker:
+      - image: circleci/golang:1.9
+        environment:
+          CIRCLE_TEST_REPORTS: /tmp/circle-reports
+          COMMON_GO_PACKAGES: >
+            gopkg.in/alecthomas/gometalinter.v2
+            github.com/jstemmer/go-junit-report
+
+    steps:
+      - checkout
+      - run: go get -u $COMMON_GO_PACKAGES
+      - run: gometalinter.v2 --install
+      - run: gometalinter.v2 --disable gocyclo --disable golint --disable goconst --disable errcheck --disable maligned
+
+      - run: |
+          mkdir -p $CIRCLE_TEST_REPORTS
+          trap "go-junit-report < output.txt > $CIRCLE_TEST_REPORTS/junit.xml" EXIT
+          go test -race -v ./... | tee output.txt
+
+      - store_test_results:
+          path: /tmp/circle-reports
+
+workflows:
+  version: 2
+  test:
+    jobs:
+      - go-test
