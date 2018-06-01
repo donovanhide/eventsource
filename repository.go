@@ -8,12 +8,13 @@ import (
 // Example repository that uses a slice as storage for past events.
 type SliceRepository struct {
 	events map[string][]Event
-	lock   sync.RWMutex
+	lock   *sync.RWMutex
 }
 
 func NewSliceRepository() *SliceRepository {
 	return &SliceRepository{
 		events: make(map[string][]Event),
+		lock:   &sync.RWMutex{},
 	}
 }
 
@@ -46,5 +47,4 @@ func (repo *SliceRepository) Add(channel string, event Event) {
 	} else {
 		repo.events[channel] = append(repo.events[channel][:i], append([]Event{event}, repo.events[channel][i:]...)...)
 	}
-	return
 }

@@ -18,7 +18,7 @@ func TestNewServerHandlerRespondsAfterClose(t *testing.T) {
 	go func() {
 		resp, err := http.Get(httpServer.URL)
 		if err != nil {
-			t.Fatalf("Unexpected error %s", err)
+			t.Errorf("Unexpected error %s", err)
 		}
 		responses <- resp
 	}()
