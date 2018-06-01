@@ -26,9 +26,10 @@ type Stream struct {
 	// even if that involves reconnecting to the server.
 	Errors chan error
 	// Logger is a logger that, when set, will be used for logging debug messages
-	Logger    Logger
+	Logger    Logger // Set with SetLogger if you want your code to be thread-safe
 	closer    chan struct{}
 	closeOnce sync.Once
+	mu        sync.RWMutex
 }
 
 type SubscriptionError struct {
@@ -124,8 +125,9 @@ func (stream *Stream) stream(r io.ReadCloser) {
 	retryChan := make(chan struct{}, 1)
 
 	scheduleRetry := func(backoff *time.Duration) {
-		if stream.Logger != nil {
-			stream.Logger.Printf("Reconnecting in %0.4f secs\n", backoff.Seconds())
+		logger := stream.getLogger()
+		if logger != nil {
+			logger.Printf("Reconnecting in %0.4f secs\n", backoff.Seconds())
 		}
 		time.AfterFunc(*backoff, func() {
 			retryChan <- struct{}{}
@@ -135,7 +137,7 @@ func (stream *Stream) stream(r io.ReadCloser) {
 
 NewStream:
 	for {
-		backoff := stream.retry
+		backoff := stream.getRetry()
 		events := make(chan Event)
 		errs := make(chan error)
 
@@ -203,4 +205,28 @@ NewStream:
 
 	close(stream.Errors)
 	close(stream.Events)
+}
+
+func (stream *Stream) setRetry(retry time.Duration) {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	stream.retry = retry
+}
+
+func (stream *Stream) getRetry() time.Duration {
+	stream.mu.RLock()
+	defer stream.mu.RUnlock()
+	return stream.retry
+}
+
+func (stream *Stream) SetLogger(logger Logger) {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	stream.Logger = logger
+}
+
+func (stream *Stream) getLogger() Logger {
+	stream.mu.RLock()
+	defer stream.mu.RUnlock()
+	return stream.Logger
 }

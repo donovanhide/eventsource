@@ -98,7 +98,7 @@ func TestStreamReconnect(t *testing.T) {
 	defer server.Close()
 
 	stream := mustSubscribe(t, httpServer.URL, "")
-	stream.retry = time.Millisecond
+	stream.setRetry(time.Millisecond)
 	publishedEvent := &publication{id: "123"}
 	server.Publish([]string{eventChannelName}, publishedEvent)
 
@@ -146,7 +146,7 @@ func TestStreamCloseWhileReconnecting(t *testing.T) {
 	httpServer := httptest.NewServer(server.Handler(eventChannelName))
 
 	stream := mustSubscribe(t, httpServer.URL, "")
-	stream.retry = time.Hour
+	stream.setRetry(time.Hour)
 	publishedEvent := &publication{id: "123"}
 	server.Publish([]string{eventChannelName}, publishedEvent)
 
@@ -194,6 +194,6 @@ func mustSubscribe(t *testing.T, url, lastEventId string) *Stream {
 	if err != nil {
 		t.Fatalf("Failed to subscribe: %s", err)
 	}
-	stream.Logger = log.New(os.Stderr, "", log.LstdFlags)
+	stream.SetLogger(log.New(os.Stderr, "", log.LstdFlags))
 	return stream
 }
