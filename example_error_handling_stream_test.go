@@ -2,12 +2,14 @@ package eventsource_test
 
 import (
 	"fmt"
-	"github.com/launchdarkly/eventsource"
 	"net"
 	"net/http"
+
+	"github.com/launchdarkly/eventsource"
 )
 
-func ExampleErrorHandlingStream() {
+//lint:ignore U1000, just some sample code
+func SampleErrorHandlingStream() {
 	listener, err := net.Listen("tcp", ":8080")
 	if err != nil {
 		return
