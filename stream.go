@@ -219,6 +219,7 @@ func (stream *Stream) getRetry() time.Duration {
 	return stream.retry
 }
 
+// SetLogger sets the Logger field in a thread-safe manner.
 func (stream *Stream) SetLogger(logger Logger) {
 	stream.mu.Lock()
 	defer stream.mu.Unlock()

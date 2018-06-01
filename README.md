@@ -1,5 +1,5 @@
-[![GoDoc](https://godoc.org/github.com/donovanhide/eventsource?status.svg)](http://godoc.org/github.com/donovanhide/eventsource)
-[![CircleCI](https://circleci.com/gh/donovanhide/eventsource.svg?style=svg)](https://circleci.com/gh/donovanhide/eventsource)
+[![GoDoc](https://godoc.org/github.com/launchdarkly/eventsource?status.svg)](http://godoc.org/github.com/launchdarkly/eventsource)
+[![CircleCI](https://circleci.com/gh/launchdarkly/eventsource.svg?style=svg)](https://circleci.com/gh/launchdarkly/eventsource)
 
 
 # Eventsource
@@ -12,7 +12,7 @@ Eventsource implements a  [Go](http://golang.org/) implementation of  client and
 
 ## Documentation
 
-* [Reference](http://godoc.org/github.com/donovanhide/eventsource)
+* [Reference](http://godoc.org/github.com/eventsource/eventsource)
 
 ## License
 
