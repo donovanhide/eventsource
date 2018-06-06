@@ -26,10 +26,11 @@ type Stream struct {
 	// even if that involves reconnecting to the server.
 	Errors chan error
 	// Logger is a logger that, when set, will be used for logging debug messages
-	Logger    Logger // Set with SetLogger if you want your code to be thread-safe
-	closer    chan struct{}
-	closeOnce sync.Once
-	mu        sync.RWMutex
+	Logger      Logger // Set with SetLogger if you want your code to be thread-safe
+	closer      chan struct{}
+	closeOnce   sync.Once
+	mu          sync.RWMutex
+	connections int
 }
 
 type SubscriptionError struct {
@@ -59,6 +60,7 @@ func SubscribeWithRequest(lastEventId string, request *http.Request) (*Stream, e
 
 // SubscribeWith takes a http client and request providing customization over both headers and
 // control over the http client settings (timeouts, tls, etc)
+// If request.Body is set, then request.GetBody should also be set so that we can reissue the request
 func SubscribeWith(lastEventId string, client *http.Client, request *http.Request) (*Stream, error) {
 	stream := &Stream{
 		c:           client,
@@ -107,9 +109,19 @@ func (stream *Stream) connect() (r io.ReadCloser, err error) {
 	if len(stream.lastEventId) > 0 {
 		stream.req.Header.Set("Last-Event-ID", stream.lastEventId)
 	}
-	if resp, err = stream.c.Do(stream.req); err != nil {
+	req := *stream.req
+
+	// All but the initial connection will need to regenerate the body
+	if stream.connections > 0 && req.GetBody != nil {
+		if req.Body, err = req.GetBody(); err != nil {
+			return
+		}
+	}
+
+	if resp, err = stream.c.Do(&req); err != nil {
 		return
 	}
+	stream.connections++
 	if resp.StatusCode != 200 {
 		message, _ := ioutil.ReadAll(resp.Body)
 		err = SubscriptionError{

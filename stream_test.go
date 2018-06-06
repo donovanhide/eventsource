@@ -1,8 +1,11 @@
 package eventsource
 
 import (
+	"bytes"
 	"io"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"reflect"
@@ -139,6 +142,64 @@ func TestStreamReconnect(t *testing.T) {
 			return
 		}
 	}
+}
+
+func TestStreamReconnectWithReportSendsBodyTwice(t *testing.T) {
+	connections := make(chan struct{}, 2)
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := ioutil.ReadAll(r.Body)
+		if string(body) != "my-body" {
+			t.Error("didn't get expected body")
+		}
+		connections <- struct{}{}
+		ticker := time.NewTicker(time.Millisecond)
+		defer ticker.Stop()
+		for range ticker.C {
+			// Just send comments
+			if _, err := w.Write([]byte(":\n")); err != nil {
+				return
+			}
+		}
+	}))
+
+	defer httpServer.Close()
+
+	req, _ := http.NewRequest("REPORT", httpServer.URL, bytes.NewBufferString("my-body"))
+	if req.GetBody == nil {
+		t.Fatalf("Expected get body to be set")
+	}
+	stream, err := SubscribeWithRequest("", req)
+	if err != nil {
+		t.Fatalf("Failed to subscribe: %s", err)
+		return
+	}
+
+	// Acknowledge initial connection
+	<-connections
+
+	stream.setRetry(time.Millisecond)
+
+	// Kick everyone off
+	httpServer.CloseClientConnections()
+
+	// Accept the error to unblock the retry handler
+	<-stream.Errors
+
+	// Wait for a second connection attempt
+WaitForSecondConnection:
+	for {
+		select {
+		case <-connections:
+			break WaitForSecondConnection
+		case <-time.After(2 * time.Second):
+			t.Fatalf("Timed out waiting for second connection")
+			return
+		}
+	}
+	stream.Close()
+
+	// Speed up the close by eliminating current connections
+	httpServer.CloseClientConnections()
 }
 
 func TestStreamCloseWhileReconnecting(t *testing.T) {
