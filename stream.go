@@ -1,7 +1,6 @@
 package eventsource
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -62,6 +61,10 @@ func SubscribeWithRequest(lastEventId string, request *http.Request) (*Stream, e
 // control over the http client settings (timeouts, tls, etc)
 // If request.Body is set, then request.GetBody should also be set so that we can reissue the request
 func SubscribeWith(lastEventId string, client *http.Client, request *http.Request) (*Stream, error) {
+	// override checkRedirect to include headers before go1.8
+	// we'd prefer to skip this because it is not thread-safe and breaks golang race condition checking
+	setCheckRedirect(client)
+
 	stream := &Stream{
 		c:           client,
 		req:         request,
@@ -71,7 +74,6 @@ func SubscribeWith(lastEventId string, client *http.Client, request *http.Reques
 		Errors:      make(chan error),
 		closer:      make(chan struct{}),
 	}
-	stream.c.CheckRedirect = checkRedirect
 
 	r, err := stream.connect()
 	if err != nil {
@@ -86,20 +88,6 @@ func (stream *Stream) Close() {
 	stream.closeOnce.Do(func() {
 		close(stream.closer)
 	})
-}
-
-// Go's http package doesn't copy headers across when it encounters
-// redirects so we need to do that manually.
-func checkRedirect(req *http.Request, via []*http.Request) error {
-	if len(via) >= 10 {
-		return errors.New("stopped after 10 redirects")
-	}
-	for k, vv := range via[0].Header {
-		for _, v := range vv {
-			req.Header.Add(k, v)
-		}
-	}
-	return nil
 }
 
 func (stream *Stream) connect() (r io.ReadCloser, err error) {
