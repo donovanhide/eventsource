@@ -90,7 +90,8 @@ func (stream *Stream) Close() {
 	})
 }
 
-func (stream *Stream) connect() (r io.ReadCloser, err error) {
+func (stream *Stream) connect() (io.ReadCloser, error) {
+	var err error
 	var resp *http.Response
 	stream.req.Header.Set("Cache-Control", "no-cache")
 	stream.req.Header.Set("Accept", "text/event-stream")
@@ -102,23 +103,24 @@ func (stream *Stream) connect() (r io.ReadCloser, err error) {
 	// All but the initial connection will need to regenerate the body
 	if stream.connections > 0 && req.GetBody != nil {
 		if req.Body, err = req.GetBody(); err != nil {
-			return
+			return nil, err
 		}
 	}
 
 	if resp, err = stream.c.Do(&req); err != nil {
-		return
+		return nil, err
 	}
 	stream.connections++
 	if resp.StatusCode != 200 {
 		message, _ := ioutil.ReadAll(resp.Body)
+		_ = resp.Body.Close()
 		err = SubscriptionError{
 			Code:    resp.StatusCode,
 			Message: string(message),
 		}
+		return nil, err
 	}
-	r = resp.Body
-	return
+	return resp.Body, nil
 }
 
 func (stream *Stream) stream(r io.ReadCloser) {
@@ -162,7 +164,7 @@ NewStream:
 			select {
 			case err := <-errs:
 				stream.Errors <- err
-				r.Close()
+				_ = r.Close()
 				r = nil
 				scheduleRetry(&backoff)
 				continue NewStream
@@ -177,17 +179,11 @@ NewStream:
 				stream.Events <- ev
 			case <-stream.closer:
 				if r != nil {
-					r.Close()
+					_ = r.Close()
 					// allow the decoding goroutine to terminate
-					for {
-						if _, ok := <-errs; !ok {
-							break
-						}
+					for range errs {
 					}
-					for {
-						if _, ok := <-events; !ok {
-							break
-						}
+					for range events {
 					}
 				}
 				break NewStream
@@ -195,6 +191,7 @@ NewStream:
 				var err error
 				r, err = stream.connect()
 				if err != nil {
+					r = nil
 					stream.Errors <- err
 					scheduleRetry(&backoff)
 				}
@@ -207,7 +204,7 @@ NewStream:
 	close(stream.Events)
 }
 
-func (stream *Stream) setRetry(retry time.Duration) {
+func (stream *Stream) setRetry(retry time.Duration) { // nolint:megacheck // unused except by tests
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
 	stream.retry = retry
