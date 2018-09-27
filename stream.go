@@ -1,6 +1,7 @@
 package eventsource
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -17,6 +18,7 @@ type Stream struct {
 	req         *http.Request
 	lastEventId string
 	retry       time.Duration
+	config      StreamConfig
 	// Events emits the events received by the stream
 	Events chan Event
 	// Errors emits any errors encountered while reading events from the stream.
@@ -32,6 +34,28 @@ type Stream struct {
 	connections int
 }
 
+// StreamConfig provides optional configuration parameters for a stream.
+type StreamConfig struct {
+	// ReadTimeout is the maximum amount of time for the stream to wait for new data before
+	// restarting the connection. If zero, it will wait indefinitely.
+	ReadTimeout time.Duration
+	// InitialRetry is the initial reconnection delay that will be used if the stream does
+	// not specify a different interval. If zero, DefaultInitialRetry is used.
+	InitialRetry time.Duration
+}
+
+const (
+	// DefaultInitialRetry is the initial reconnection delay that will be used if no other
+	// value is specified.
+	DefaultInitialRetry = time.Second * 3
+)
+
+var (
+	// ErrReadTimeout is the error that will be emitted if a stream was closed due to not
+	// receiving any data within the configured read timeout interval.
+	ErrReadTimeout = errors.New("Read timeout on stream")
+)
+
 type SubscriptionError struct {
 	Code    int
 	Message string
@@ -43,24 +67,39 @@ func (e SubscriptionError) Error() string {
 
 // Subscribe to the Events emitted from the specified url.
 // If lastEventId is non-empty it will be sent to the server in case it can replay missed events.
-func Subscribe(url, lastEventId string) (*Stream, error) {
+func Subscribe(url, lastEventID string) (*Stream, error) {
+	return SubscribeWithConfig(url, lastEventID, StreamConfig{})
+}
+
+// SubscribeWithConfig is the same as Subscribe, but allows specifying optional parameters.
+func SubscribeWithConfig(url, lastEventID string, config StreamConfig) (*Stream, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
-	return SubscribeWithRequest(lastEventId, req)
+	return SubscribeWithRequestAndConfig(lastEventID, req, config)
 }
 
 // SubscribeWithRequest will take an http.Request to setup the stream, allowing custom headers
 // to be specified, authentication to be configured, etc.
-func SubscribeWithRequest(lastEventId string, request *http.Request) (*Stream, error) {
-	return SubscribeWith(lastEventId, http.DefaultClient, request)
+func SubscribeWithRequest(lastEventID string, request *http.Request) (*Stream, error) {
+	return SubscribeWith(lastEventID, http.DefaultClient, request)
+}
+
+// SubscribeWithRequestAndConfig is the same as SubscribeWithRequest, but allows specifying optional parameters.
+func SubscribeWithRequestAndConfig(lastEventID string, request *http.Request, config StreamConfig) (*Stream, error) {
+	return SubscribeWithClientAndRequestAndConfig(lastEventID, http.DefaultClient, request, config)
 }
 
 // SubscribeWith takes a http client and request providing customization over both headers and
 // control over the http client settings (timeouts, tls, etc)
 // If request.Body is set, then request.GetBody should also be set so that we can reissue the request
-func SubscribeWith(lastEventId string, client *http.Client, request *http.Request) (*Stream, error) {
+func SubscribeWith(lastEventID string, client *http.Client, request *http.Request) (*Stream, error) {
+	return SubscribeWithClientAndRequestAndConfig(lastEventID, client, request, StreamConfig{})
+}
+
+// SubscribeWithClientAndRequestAndConfig is the same as SubscribeWith, but allows specifying optional parameters.
+func SubscribeWithClientAndRequestAndConfig(lastEventID string, client *http.Client, request *http.Request, config StreamConfig) (*Stream, error) {
 	// override checkRedirect to include headers before go1.8
 	// we'd prefer to skip this because it is not thread-safe and breaks golang race condition checking
 	setCheckRedirect(client)
@@ -68,11 +107,16 @@ func SubscribeWith(lastEventId string, client *http.Client, request *http.Reques
 	stream := &Stream{
 		c:           client,
 		req:         request,
-		lastEventId: lastEventId,
-		retry:       time.Millisecond * 3000,
+		lastEventId: lastEventID,
+		config:      config,
+		retry:       config.InitialRetry,
 		Events:      make(chan Event),
 		Errors:      make(chan error),
 		closer:      make(chan struct{}),
+	}
+
+	if stream.retry == 0 {
+		stream.retry = DefaultInitialRetry
 	}
 
 	r, err := stream.connect()
@@ -144,7 +188,7 @@ NewStream:
 		errs := make(chan error)
 
 		if r != nil {
-			dec := NewDecoder(r)
+			dec := NewDecoder(r, stream.config.ReadTimeout)
 			go func() {
 				for {
 					ev, err := dec.Decode()

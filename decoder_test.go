@@ -24,7 +24,7 @@ func TestDecode(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		decoder := NewDecoder(strings.NewReader(test.rawInput))
+		decoder := NewDecoder(strings.NewReader(test.rawInput), 0)
 		i := 0
 		for {
 			event, err := decoder.Decode()

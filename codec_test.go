@@ -22,10 +22,9 @@ var encoderTests = []struct {
 }
 
 func TestRoundTrip(t *testing.T) {
-	buf := new(bytes.Buffer)
-	enc := NewEncoder(buf, false)
-	dec := NewDecoder(buf)
 	for _, tt := range encoderTests {
+		buf := new(bytes.Buffer)
+		enc := NewEncoder(buf, false)
 		want := tt.event
 		if err := enc.Encode(want); err != nil {
 			t.Fatal(err)
@@ -33,6 +32,7 @@ func TestRoundTrip(t *testing.T) {
 		if buf.String() != tt.output {
 			t.Errorf("Expected: %s Got: %s", tt.output, buf.String())
 		}
+		dec := NewDecoder(buf, 0)
 		ev, err := dec.Decode()
 		if err != nil {
 			t.Fatal(err)

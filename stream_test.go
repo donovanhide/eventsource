@@ -11,12 +11,26 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const (
 	eventChannelName   = "Test"
 	timeToWaitForEvent = 100 * time.Millisecond
 )
+
+type eventReplayer struct {
+	events []Event
+}
+
+func (r eventReplayer) Replay(channel string, lastEventID string) chan Event {
+	ch := make(chan Event, len(r.events))
+	for _, e := range r.events {
+		ch <- e
+	}
+	return ch
+}
 
 func TestStreamSubscribeEventsChan(t *testing.T) {
 	server := NewServer()
@@ -26,7 +40,7 @@ func TestStreamSubscribeEventsChan(t *testing.T) {
 	defer httpServer.Close()
 	defer server.Close()
 
-	stream := mustSubscribe(t, httpServer.URL, "")
+	stream := mustSubscribe(t, httpServer.URL, "", StreamConfig{})
 
 	publishedEvent := &publication{id: "123"}
 	server.Publish([]string{eventChannelName}, publishedEvent)
@@ -47,7 +61,7 @@ func TestStreamSubscribeErrorsChan(t *testing.T) {
 
 	defer httpServer.Close()
 
-	stream := mustSubscribe(t, httpServer.URL, "")
+	stream := mustSubscribe(t, httpServer.URL, "", StreamConfig{})
 	server.Close()
 
 	select {
@@ -68,7 +82,7 @@ func TestStreamClose(t *testing.T) {
 	defer httpServer.Close()
 	defer server.Close()
 
-	stream := mustSubscribe(t, httpServer.URL, "")
+	stream := mustSubscribe(t, httpServer.URL, "", StreamConfig{})
 	stream.Close()
 	// its safe to Close the stream multiple times
 	stream.Close()
@@ -100,7 +114,7 @@ func TestStreamReconnect(t *testing.T) {
 	defer httpServer.Close()
 	defer server.Close()
 
-	stream := mustSubscribe(t, httpServer.URL, "")
+	stream := mustSubscribe(t, httpServer.URL, "", StreamConfig{})
 	stream.setRetry(time.Millisecond)
 	publishedEvent := &publication{id: "123"}
 	server.Publish([]string{eventChannelName}, publishedEvent)
@@ -206,7 +220,7 @@ func TestStreamCloseWhileReconnecting(t *testing.T) {
 	server := NewServer()
 	httpServer := httptest.NewServer(server.Handler(eventChannelName))
 
-	stream := mustSubscribe(t, httpServer.URL, "")
+	stream := mustSubscribe(t, httpServer.URL, "", StreamConfig{})
 	stream.setRetry(time.Hour)
 	publishedEvent := &publication{id: "123"}
 	server.Publish([]string{eventChannelName}, publishedEvent)
@@ -250,8 +264,50 @@ func TestStreamCloseWhileReconnecting(t *testing.T) {
 	}
 }
 
-func mustSubscribe(t *testing.T, url, lastEventId string) *Stream {
-	stream, err := Subscribe(url, lastEventId)
+func TestStreamReadTimeout(t *testing.T) {
+	timeout := time.Millisecond * 200
+	config := StreamConfig{
+		ReadTimeout:  timeout,
+		InitialRetry: time.Millisecond,
+	}
+
+	server := NewServer()
+	server.ReplayAll = true
+	publishedEvent := &publication{data: "123"}
+	server.Register(eventChannelName, eventReplayer{[]Event{publishedEvent}})
+	// this makes it send exactly one event for each connection
+	httpServer := httptest.NewServer(server.Handler(eventChannelName))
+	defer httpServer.Close()
+	defer server.Close()
+
+	stream := mustSubscribe(t, httpServer.URL, "", config)
+
+	var receivedEvents []Event
+	var receivedErrors []error
+
+	waitUntil := time.After(timeout + (timeout / 2))
+ReadLoop:
+	for {
+		select {
+		case e := <-stream.Events:
+			receivedEvents = append(receivedEvents, e)
+		case err := <-stream.Errors:
+			receivedErrors = append(receivedErrors, err)
+		case <-waitUntil:
+			break ReadLoop
+		}
+	}
+
+	httpServer.CloseClientConnections()
+
+	assert.Equal(t, 2, len(receivedEvents))
+	if assert.Equal(t, 1, len(receivedErrors)) {
+		assert.Equal(t, ErrReadTimeout, receivedErrors[0])
+	}
+}
+
+func mustSubscribe(t *testing.T, url, lastEventId string, config StreamConfig) *Stream {
+	stream, err := SubscribeWithConfig(url, lastEventId, config)
 	if err != nil {
 		t.Fatalf("Failed to subscribe: %s", err)
 	}
