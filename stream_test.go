@@ -11,8 +11,6 @@ import (
 	"reflect"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/assert"
 )
 
 const (
@@ -300,9 +298,15 @@ ReadLoop:
 
 	httpServer.CloseClientConnections()
 
-	assert.Equal(t, 2, len(receivedEvents))
-	if assert.Equal(t, 1, len(receivedErrors)) {
-		assert.Equal(t, ErrReadTimeout, receivedErrors[0])
+	if len(receivedEvents) != 2 {
+		t.Errorf("Expected 2 events, received %d", len(receivedEvents))
+	}
+	if len(receivedErrors) != 1 {
+		t.Errorf("Expected 1 error, received %d", len(receivedErrors))
+	} else {
+		if receivedErrors[0] != ErrReadTimeout {
+			t.Errorf("Expected %s, received %s", ErrReadTimeout, receivedErrors[0])
+		}
 	}
 }
 
