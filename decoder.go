@@ -30,7 +30,11 @@ type Decoder struct {
 func NewDecoder(r io.Reader, readTimeout time.Duration) *Decoder {
 	bufReader := bufio.NewReader(newNormaliser(r))
 	linesCh, errorCh := newLineStreamChannel(bufReader)
-	return &Decoder{linesCh, errorCh, readTimeout}
+	return &Decoder{
+		linesCh:     linesCh,
+		errorCh:     errorCh,
+		readTimeout: readTimeout,
+	}
 }
 
 // Decode reads the next Event from a stream (and will block until one

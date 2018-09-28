@@ -99,7 +99,8 @@ func SubscribeWith(lastEventID string, client *http.Client, request *http.Reques
 }
 
 // SubscribeWithClientAndRequestAndConfig is the same as SubscribeWith, but allows specifying optional parameters.
-func SubscribeWithClientAndRequestAndConfig(lastEventID string, client *http.Client, request *http.Request, config StreamConfig) (*Stream, error) {
+func SubscribeWithClientAndRequestAndConfig(lastEventID string, client *http.Client, request *http.Request,
+	config StreamConfig) (*Stream, error) {
 	// override checkRedirect to include headers before go1.8
 	// we'd prefer to skip this because it is not thread-safe and breaks golang race condition checking
 	setCheckRedirect(client)
