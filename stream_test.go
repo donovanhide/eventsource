@@ -18,18 +18,6 @@ const (
 	timeToWaitForEvent = 100 * time.Millisecond
 )
 
-type eventReplayer struct {
-	events []Event
-}
-
-func (r eventReplayer) Replay(channel string, lastEventID string) chan Event {
-	ch := make(chan Event, len(r.events))
-	for _, e := range r.events {
-		ch <- e
-	}
-	return ch
-}
-
 func TestStreamSubscribeEventsChan(t *testing.T) {
 	server := NewServer()
 	httpServer := httptest.NewServer(server.Handler(eventChannelName))
@@ -272,7 +260,9 @@ func TestStreamReadTimeout(t *testing.T) {
 	server := NewServer()
 	server.ReplayAll = true
 	publishedEvent := &publication{data: "123"}
-	server.Register(eventChannelName, eventReplayer{[]Event{publishedEvent}})
+	repo := NewSliceRepository()
+	repo.Add(eventChannelName, publishedEvent)
+	server.Register(eventChannelName, repo)
 	// this makes it send exactly one event for each connection
 	httpServer := httptest.NewServer(server.Handler(eventChannelName))
 	defer httpServer.Close()
