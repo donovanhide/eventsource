@@ -45,24 +45,29 @@ func NewDecoder(r io.Reader, readTimeout time.Duration) *Decoder {
 func (dec *Decoder) Decode() (Event, error) {
 	pub := new(publication)
 	inDecoding := false
-	var timeoutCh <-chan time.Time
-	if dec.readTimeout > 0 {
-		timeoutCh = time.After(dec.readTimeout)
-	}
 ReadLoop:
 	for {
+		var timeoutTimer *time.Timer
+		var timeoutCh <-chan time.Time
+		if dec.readTimeout > 0 {
+			timeoutTimer = time.NewTimer(dec.readTimeout)
+			timeoutCh = timeoutTimer.C
+		}
 		select {
 		case line := <-dec.linesCh:
+			if timeoutTimer != nil {
+				timeoutTimer.Stop()
+			}
 			if line == "\n" && inDecoding {
 				// the empty line signals the end of an event
 				break ReadLoop
 			} else if line == "\n" && !inDecoding {
 				// only a newline was sent, so we don't want to publish an empty event but try to read again
-				continue
+				continue ReadLoop
 			}
 			line = strings.TrimSuffix(line, "\n")
 			if strings.HasPrefix(line, ":") {
-				continue
+				continue ReadLoop
 			}
 			sections := strings.SplitN(line, ":", 2)
 			field, value := sections[0], ""
@@ -81,6 +86,9 @@ ReadLoop:
 				pub.retry, _ = strconv.ParseInt(value, 10, 64)
 			}
 		case err := <-dec.errorCh:
+			if timeoutTimer != nil {
+				timeoutTimer.Stop()
+			}
 			if err == io.ErrUnexpectedEOF && !inDecoding {
 				// if we're not in the middle of an event then just return EOF
 				err = io.EOF

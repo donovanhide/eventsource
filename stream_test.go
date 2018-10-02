@@ -292,11 +292,59 @@ ReadLoop:
 		t.Errorf("Expected 2 events, received %d", len(receivedEvents))
 	}
 	if len(receivedErrors) != 1 {
-		t.Errorf("Expected 1 error, received %d", len(receivedErrors))
+		t.Errorf("Expected 1 error, received %d (%+v)", len(receivedErrors), receivedErrors)
 	} else {
 		if receivedErrors[0] != ErrReadTimeout {
 			t.Errorf("Expected %s, received %s", ErrReadTimeout, receivedErrors[0])
 		}
+	}
+}
+
+func TestStreamReadTimeoutIsPreventedByComment(t *testing.T) {
+	timeout := time.Millisecond * 200
+	config := StreamConfig{
+		ReadTimeout:  timeout,
+		InitialRetry: time.Millisecond,
+	}
+
+	server := NewServer()
+	server.ReplayAll = true
+	publishedEvent := &publication{data: "123"}
+	repo := NewSliceRepository()
+	repo.Add(eventChannelName, publishedEvent)
+	server.Register(eventChannelName, repo)
+	// this makes it send exactly one event for each connection
+	httpServer := httptest.NewServer(server.Handler(eventChannelName))
+	defer httpServer.Close()
+	defer server.Close()
+
+	stream := mustSubscribe(t, httpServer.URL, "", config)
+
+	var receivedEvents []Event
+	var receivedErrors []error
+
+	waitUntil := time.After(timeout + (timeout / 2))
+	time.Sleep(time.Duration(float64(timeout) * 0.75))
+	server.PublishComment([]string{eventChannelName}, "")
+ReadLoop:
+	for {
+		select {
+		case e := <-stream.Events:
+			receivedEvents = append(receivedEvents, e)
+		case err := <-stream.Errors:
+			receivedErrors = append(receivedErrors, err)
+		case <-waitUntil:
+			break ReadLoop
+		}
+	}
+
+	httpServer.CloseClientConnections()
+
+	if len(receivedEvents) != 1 {
+		t.Errorf("Expected 1 event, received %d", len(receivedEvents))
+	}
+	if len(receivedErrors) != 0 {
+		t.Errorf("Expected 0 errors, received %d (%+v)", len(receivedErrors), receivedErrors)
 	}
 }
 
