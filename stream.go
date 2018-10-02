@@ -121,16 +121,6 @@ func StreamOptionLogger(logger Logger) StreamOption {
 	return loggerOption{logger: logger}
 }
 
-// StreamConfig provides optional configuration parameters for a stream.
-type StreamConfig struct {
-	// ReadTimeout is the maximum amount of time for the stream to wait for new data before
-	// restarting the connection. If zero, it will wait indefinitely.
-	ReadTimeout time.Duration
-	// InitialRetry is the initial reconnection delay that will be used if the stream does
-	// not specify a different interval. If zero, DefaultInitialRetry is used.
-	InitialRetry time.Duration
-}
-
 const (
 	// DefaultInitialRetry is the initial reconnection delay that will be used if no other
 	// value is specified.
