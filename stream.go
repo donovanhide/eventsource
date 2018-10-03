@@ -1,6 +1,7 @@
 package eventsource
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -17,6 +18,7 @@ type Stream struct {
 	req         *http.Request
 	lastEventId string
 	retry       time.Duration
+	readTimeout time.Duration
 	// Events emits the events received by the stream
 	Events chan Event
 	// Errors emits any errors encountered while reading events from the stream.
@@ -32,6 +34,106 @@ type Stream struct {
 	connections int
 }
 
+// StreamOption is a common interface for optional configuration parameters that can be
+// used in creating a stream.
+type StreamOption interface {
+	apply(s *Stream) error
+}
+
+type readTimeoutOption struct {
+	timeout time.Duration
+}
+
+func (o readTimeoutOption) apply(s *Stream) error {
+	s.readTimeout = o.timeout
+	return nil
+}
+
+// StreamOptionReadTimeout returns an option that sets the read timeout interval for a
+// stream when the stream is created. If the stream does not receive new data within this
+// length of time, it will restart the connection. By default, there is no read timeout.
+func StreamOptionReadTimeout(timeout time.Duration) StreamOption {
+	return readTimeoutOption{timeout: timeout}
+}
+
+type initialRetryOption struct {
+	retry time.Duration
+}
+
+func (o initialRetryOption) apply(s *Stream) error {
+	s.retry = o.retry
+	return nil
+}
+
+// StreamOptionInitialRetry returns an option that sets the initial retry delay for a
+// stream when the stream is created. This will be used the first time the stream has to
+// be restarted; the interval will increase on subsequent reconnections. The default retry
+// delay is DefaultInitialRetry.
+func StreamOptionInitialRetry(retry time.Duration) StreamOption {
+	return initialRetryOption{retry: retry}
+}
+
+type lastEventIDOption struct {
+	lastEventID string
+}
+
+func (o lastEventIDOption) apply(s *Stream) error {
+	s.lastEventId = o.lastEventID
+	return nil
+}
+
+// StreamOptionLastEventID returns an option that sets the initial last event ID for a
+// stream when the stream is created. If specified, this value will be sent to the server
+// in case it can replay missed events.
+func StreamOptionLastEventID(lastEventID string) StreamOption {
+	return lastEventIDOption{lastEventID: lastEventID}
+}
+
+type httpClientOption struct {
+	client *http.Client
+}
+
+func (o httpClientOption) apply(s *Stream) error {
+	if o.client != nil {
+		s.c = o.client
+	}
+	return nil
+}
+
+// StreamOptionHTTPClient returns an option that overrides the default HTTP client used by
+// a stream when the stream is created.
+func StreamOptionHTTPClient(client *http.Client) StreamOption {
+	return httpClientOption{client: client}
+}
+
+type loggerOption struct {
+	logger Logger
+}
+
+func (o loggerOption) apply(s *Stream) error {
+	s.Logger = o.logger
+	return nil
+}
+
+// StreamOptionLogger returns an option that sets the logger for a stream when the stream
+// is created (to change it later, you can use SetLogger). By default, there is no logger.
+func StreamOptionLogger(logger Logger) StreamOption {
+	return loggerOption{logger: logger}
+}
+
+const (
+	// DefaultInitialRetry is the initial reconnection delay that will be used if no other
+	// value is specified.
+	DefaultInitialRetry = time.Second * 3
+)
+
+var (
+	// ErrReadTimeout is the error that will be emitted if a stream was closed due to not
+	// receiving any data within the configured read timeout interval.
+	ErrReadTimeout = errors.New("Read timeout on stream")
+)
+
+// SubscriptionError is an error object returned from a stream when there is an HTTP error.
 type SubscriptionError struct {
 	Code    int
 	Message string
@@ -43,37 +145,62 @@ func (e SubscriptionError) Error() string {
 
 // Subscribe to the Events emitted from the specified url.
 // If lastEventId is non-empty it will be sent to the server in case it can replay missed events.
-func Subscribe(url, lastEventId string) (*Stream, error) {
+// Deprecated: use SubscribeWithURL instead.
+func Subscribe(url, lastEventID string) (*Stream, error) {
+	return SubscribeWithURL(url, StreamOptionLastEventID(lastEventID))
+}
+
+// SubscribeWithURL subscribes to the Events emitted from the specified URL. The stream can
+// be configured by providing any number of StreamOption values.
+func SubscribeWithURL(url string, options ...StreamOption) (*Stream, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
-	return SubscribeWithRequest(lastEventId, req)
+	return SubscribeWithRequestAndOptions(req, options...)
 }
 
-// SubscribeWithRequest will take an http.Request to setup the stream, allowing custom headers
+// SubscribeWithRequest will take an http.Request to set up the stream, allowing custom headers
 // to be specified, authentication to be configured, etc.
-func SubscribeWithRequest(lastEventId string, request *http.Request) (*Stream, error) {
-	return SubscribeWith(lastEventId, http.DefaultClient, request)
+// Deprecated: use SubscribeWithRequestAndOptions instead.
+func SubscribeWithRequest(lastEventID string, request *http.Request) (*Stream, error) {
+	return SubscribeWithRequestAndOptions(request, StreamOptionLastEventID(lastEventID))
 }
 
-// SubscribeWith takes a http client and request providing customization over both headers and
-// control over the http client settings (timeouts, tls, etc)
+// SubscribeWith takes a HTTP client and request providing customization over both headers and
+// control over the HTTP client settings (timeouts, tls, etc)
 // If request.Body is set, then request.GetBody should also be set so that we can reissue the request
-func SubscribeWith(lastEventId string, client *http.Client, request *http.Request) (*Stream, error) {
-	// override checkRedirect to include headers before go1.8
-	// we'd prefer to skip this because it is not thread-safe and breaks golang race condition checking
-	setCheckRedirect(client)
+// Deprecated: use SubscribeWithRequestAndOptions instead.
+func SubscribeWith(lastEventID string, client *http.Client, request *http.Request) (*Stream, error) {
+	return SubscribeWithRequestAndOptions(request, StreamOptionHTTPClient(client),
+		StreamOptionLastEventID(lastEventID))
+}
+
+// SubscribeWithRequestAndOptions takes an initial http.Request to set up the stream - allowing
+// custom headers, authentication, etc. to be configured - and also takes any number of
+// StreamOption values to set other properties of the stream, such as timeouts or a specific
+// HTTP client to use.
+func SubscribeWithRequestAndOptions(request *http.Request, options ...StreamOption) (*Stream, error) {
+	defaultClient := *http.DefaultClient
 
 	stream := &Stream{
-		c:           client,
-		req:         request,
-		lastEventId: lastEventId,
-		retry:       time.Millisecond * 3000,
-		Events:      make(chan Event),
-		Errors:      make(chan error),
-		closer:      make(chan struct{}),
+		c:      &defaultClient,
+		req:    request,
+		retry:  DefaultInitialRetry,
+		Events: make(chan Event),
+		Errors: make(chan error),
+		closer: make(chan struct{}),
 	}
+
+	for _, o := range options {
+		if err := o.apply(stream); err != nil {
+			return nil, err
+		}
+	}
+
+	// override checkRedirect to include headers before go1.8
+	// we'd prefer to skip this because it is not thread-safe and breaks golang race condition checking
+	setCheckRedirect(stream.c)
 
 	r, err := stream.connect()
 	if err != nil {
@@ -144,7 +271,7 @@ NewStream:
 		errs := make(chan error)
 
 		if r != nil {
-			dec := NewDecoder(r)
+			dec := NewDecoder(r, stream.readTimeout)
 			go func() {
 				for {
 					ev, err := dec.Decode()
