@@ -271,7 +271,7 @@ NewStream:
 		errs := make(chan error)
 
 		if r != nil {
-			dec := NewDecoder(r, stream.readTimeout)
+			dec := NewDecoderWithOptions(r, DecoderOptionReadTimeout(stream.readTimeout))
 			go func() {
 				for {
 					ev, err := dec.Decode()
