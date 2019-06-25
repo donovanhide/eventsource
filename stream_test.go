@@ -87,6 +87,56 @@ func TestStreamClose(t *testing.T) {
 	}
 }
 
+func TestStreamCloseWithEvents(t *testing.T) {
+	server := NewServer()
+	httpServer := httptest.NewServer(server.Handler(eventChannelName))
+	// The server has to be closed before the httpServer is closed.
+	// Otherwise the httpServer has still an open connection and it can not close.
+	defer httpServer.Close()
+	defer server.Close()
+
+	stream := mustSubscribe(t, httpServer.URL, "")
+
+	publishedEvent := &publication{id: "123"}
+	server.Publish([]string{eventChannelName}, publishedEvent)
+
+	time.Sleep(100 * time.Millisecond)
+
+	eventsC := drainEventChannel(stream.Events)
+
+	stream.Close()
+
+	select {
+	case receivedEvents := <-eventsC:
+		if len(receivedEvents) != 1 {
+			t.Fatalf("got %d events after close, want %d", len(receivedEvents), 1)
+		}
+
+		if !reflect.DeepEqual(receivedEvents[0], publishedEvent) {
+			t.Errorf("got event %+v, want %+v", receivedEvents[0], publishedEvent)
+		}
+	case <-time.After(timeToWaitForEvent):
+		t.Fatalf("Timed out waiting for stream.Events channel to close")
+	}
+}
+
+func drainEventChannel(c <-chan Event) <-chan []Event {
+	eventsC := make(chan []Event, 1)
+
+	go func() {
+		defer close(eventsC)
+
+		events := []Event{}
+		for event := range c {
+			events = append(events, event)
+		}
+
+		eventsC <- events
+	}()
+
+	return eventsC
+}
+
 func mustSubscribe(t *testing.T, url, lastEventId string) *Stream {
 	stream, err := Subscribe(url, lastEventId)
 	if err != nil {
