@@ -165,6 +165,11 @@ func (stream *Stream) stream(r io.ReadCloser) {
 		// receives events until an error is encountered
 		stream.receiveEvents(r)
 
+		// If the stream was closed, don't attempt to reconnect.
+		if stream.isStreamClosed() {
+			return
+		}
+
 		// tries to reconnect and start the stream again
 		stream.retryRestartStream()
 	}()

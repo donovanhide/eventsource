@@ -137,6 +137,29 @@ func drainEventChannel(c <-chan Event) <-chan []Event {
 	return eventsC
 }
 
+func TestStreamCloseIsImmediate(t *testing.T) {
+	server := NewServer()
+	httpServer := httptest.NewServer(server.Handler(eventChannelName))
+	// The server has to be closed before the httpServer is closed.
+	// Otherwise the httpServer has still an open connection and it can not close.
+	defer httpServer.Close()
+	defer server.Close()
+
+	stream := mustSubscribe(t, httpServer.URL, "")
+
+	done := make(chan struct{})
+	go func() {
+		stream.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Error("Timed out waiting for Close")
+	}
+}
+
 func mustSubscribe(t *testing.T, url, lastEventId string) *Stream {
 	stream, err := Subscribe(url, lastEventId)
 	if err != nil {
