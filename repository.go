@@ -5,12 +5,13 @@ import (
 	"sync"
 )
 
-// Example repository that uses a slice as storage for past events.
+// SliceRepository is an example repository that uses a slice as storage for past events.
 type SliceRepository struct {
 	events map[string][]Event
 	lock   *sync.RWMutex
 }
 
+// NewSliceRepository creates a SliceRepository.
 func NewSliceRepository() *SliceRepository {
 	return &SliceRepository{
 		events: make(map[string][]Event),
@@ -24,6 +25,7 @@ func (repo SliceRepository) indexOfEvent(channel, id string) int {
 	})
 }
 
+// Replay implements the event replay logic for the Repository interface.
 func (repo SliceRepository) Replay(channel, id string) (out chan Event) {
 	out = make(chan Event)
 	go func() {
@@ -38,6 +40,7 @@ func (repo SliceRepository) Replay(channel, id string) (out chan Event) {
 	return
 }
 
+// Add adds an event to the repository history.
 func (repo *SliceRepository) Add(channel string, event Event) {
 	repo.lock.Lock()
 	defer repo.lock.Unlock()

@@ -5,8 +5,6 @@ run:
 linters:
   enable-all: true
   disable:
-  - gocyclo
-  - gofmt
   - maligned
   fast: false
 
@@ -15,13 +13,6 @@ linter-settings:
     simplify: false
 
 issues:
-  exclude:
-  # gas
-  - "G104: Errors unhandled." # Let errcheck handle these
-  # golint
-  - "(func|method|struct field|type|var) .* should be " # golint errors about variable names (don't want to fix them because they're in a public interface)
-  - "Comment on exported"
-  - "exported .* should have comment or be unexported"
   exclude-use-default: false
   max-same-issues: 1000
   max-per-linter: 1000

@@ -8,7 +8,7 @@ import (
 
 type subscription struct {
 	channel     string
-	lastEventId string
+	lastEventID string
 	out         chan interface{}
 }
 
@@ -28,6 +28,8 @@ type comment struct {
 	value string
 }
 
+// Server manages any number of event-publishing channels and allows subscribers to consume them.
+// To use it within an HTTP server, create a handler for each channel with Handler().
 type Server struct {
 	AllowCORS     bool   // Enable all handlers to be accessible from any origin
 	ReplayAll     bool   // Replay repository even if there's no Last-Event-Id specified
@@ -43,7 +45,7 @@ type Server struct {
 	isClosedMutex sync.RWMutex
 }
 
-// Create a new Server ready for handler creation and publishing events
+// NewServer creates a new Server instance.
 func NewServer() *Server {
 	srv := &Server{
 		registrations: make(chan *registration),
@@ -57,13 +59,13 @@ func NewServer() *Server {
 	return srv
 }
 
-// Stop handling publishing
+// Close permanently shuts down the Server. It will no longer allow new subscriptions.
 func (srv *Server) Close() {
 	srv.quit <- true
 	srv.markServerClosed()
 }
 
-// Create a new handler for serving a specified channel
+// Handler creates a new HTTP handler for serving a specified channel.
 func (srv *Server) Handler(channel string) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		h := w.Header()
@@ -87,11 +89,12 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 
 		sub := &subscription{
 			channel:     channel,
-			lastEventId: req.Header.Get("Last-Event-ID"),
+			lastEventID: req.Header.Get("Last-Event-ID"),
 			out:         make(chan interface{}, srv.BufferSize),
 		}
 		srv.subs <- sub
 		flusher := w.(http.Flusher)
+		//nolint: megacheck  // http.CloseNotifier is deprecated, but currently we are retaining compatibility with Go 1.7
 		notifier := w.(http.CloseNotifier)
 		flusher.Flush()
 		enc := NewEncoder(w, useGzip)
@@ -117,7 +120,7 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 	}
 }
 
-// Register the repository to be used for the specified channel
+// Register registers the repository to be used for the specified channel.
 func (srv *Server) Register(channel string, repo Repository) {
 	srv.registrations <- &registration{
 		channel:    channel,
@@ -125,7 +128,7 @@ func (srv *Server) Register(channel string, repo Repository) {
 	}
 }
 
-// Publish an event with the specified id to one or more channels
+// Publish publishes an event to one or more channels.
 func (srv *Server) Publish(channels []string, ev Event) {
 	srv.pub <- &outbound{
 		channels:       channels,
@@ -133,7 +136,7 @@ func (srv *Server) Publish(channels []string, ev Event) {
 	}
 }
 
-// Publish a comment to one or more channels
+// PublishComment publishes a comment to one or more channels.
 func (srv *Server) PublishComment(channels []string, text string) {
 	srv.pub <- &outbound{
 		channels:       channels,
@@ -142,7 +145,7 @@ func (srv *Server) PublishComment(channels []string, text string) {
 }
 
 func replay(repo Repository, sub *subscription) {
-	for ev := range repo.Replay(sub.channel, sub.lastEventId) {
+	for ev := range repo.Replay(sub.channel, sub.lastEventID) {
 		sub.out <- ev
 	}
 }
@@ -173,7 +176,7 @@ func (srv *Server) run() {
 				subs[sub.channel] = make(map[*subscription]struct{})
 			}
 			subs[sub.channel][sub] = struct{}{}
-			if srv.ReplayAll || len(sub.lastEventId) > 0 {
+			if srv.ReplayAll || len(sub.lastEventID) > 0 {
 				repo, ok := repos[sub.channel]
 				if ok {
 					go replay(repo, sub)

@@ -10,19 +10,18 @@ jobs:
           CIRCLE_TEST_REPORTS: /tmp/circle-reports
           COMMON_GO_PACKAGES: >
             github.com/jstemmer/go-junit-report
-          GOLANGCI_LINT_VERSION: v1.9.1
 
     steps:
       - checkout
       - run: go get -u $COMMON_GO_PACKAGES
-      - run: curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | bash -s -- $GOLANGCI_LINT_VERSION
-      - run: ./bin/golangci-lint run
 
       - run: |
           mkdir -p $CIRCLE_TEST_REPORTS
           trap "go-junit-report < output.txt > $CIRCLE_TEST_REPORTS/junit.xml" EXIT
           go test -race -v ./... | tee output.txt
 
+      - run: make init && make lint
+      
       - store_test_results:
           path: /tmp/circle-reports
 

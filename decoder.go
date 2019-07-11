@@ -13,6 +13,7 @@ type publication struct {
 	retry           int64
 }
 
+//nolint: golint  // should be ID; retained for backward compatibility
 func (s *publication) Id() string    { return s.id }
 func (s *publication) Event() string { return s.event }
 func (s *publication) Data() string  { return s.data }
@@ -114,6 +115,7 @@ ReadLoop:
 			case "id":
 				pub.id = value
 			case "retry":
+				//nolint:gosec
 				pub.retry, _ = strconv.ParseInt(value, 10, 64)
 			}
 		case err := <-dec.errorCh:

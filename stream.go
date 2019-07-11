@@ -16,7 +16,7 @@ import (
 type Stream struct {
 	c           *http.Client
 	req         *http.Request
-	lastEventId string
+	lastEventID string
 	retry       time.Duration
 	readTimeout time.Duration
 	// Events emits the events received by the stream
@@ -78,7 +78,7 @@ type lastEventIDOption struct {
 }
 
 func (o lastEventIDOption) apply(s *Stream) error {
-	s.lastEventId = o.lastEventID
+	s.lastEventID = o.lastEventID
 	return nil
 }
 
@@ -222,8 +222,8 @@ func (stream *Stream) connect() (io.ReadCloser, error) {
 	var resp *http.Response
 	stream.req.Header.Set("Cache-Control", "no-cache")
 	stream.req.Header.Set("Accept", "text/event-stream")
-	if len(stream.lastEventId) > 0 {
-		stream.req.Header.Set("Last-Event-ID", stream.lastEventId)
+	if len(stream.lastEventID) > 0 {
+		stream.req.Header.Set("Last-Event-ID", stream.lastEventID)
 	}
 	req := *stream.req
 
@@ -239,7 +239,9 @@ func (stream *Stream) connect() (io.ReadCloser, error) {
 	}
 	stream.connections++
 	if resp.StatusCode != 200 {
+		//nolint: gosec
 		message, _ := ioutil.ReadAll(resp.Body)
+		//nolint: gosec
 		_ = resp.Body.Close()
 		err = SubscriptionError{
 			Code:    resp.StatusCode,
@@ -291,6 +293,7 @@ NewStream:
 			select {
 			case err := <-errs:
 				stream.Errors <- err
+				//nolint: gosec
 				_ = r.Close()
 				r = nil
 				scheduleRetry(&backoff)
@@ -301,11 +304,12 @@ NewStream:
 					backoff = time.Duration(pub.Retry()) * time.Millisecond
 				}
 				if len(pub.Id()) > 0 {
-					stream.lastEventId = pub.Id()
+					stream.lastEventID = pub.Id()
 				}
 				stream.Events <- ev
 			case <-stream.closer:
 				if r != nil {
+					//nolint: gosec
 					_ = r.Close()
 					// allow the decoding goroutine to terminate
 					for range errs {

@@ -5,7 +5,7 @@
 // If the Repository interface is implemented on the server, events can be replayed in case of a network disconnection.
 package eventsource
 
-// Any event received by the client or sent by the server will implement this interface
+// Event is the interface for any event received by the client or sent by the server.
 type Event interface {
 	// Id is an identifier that can be used to allow a client to replay
 	// missed Events by returning the Last-Event-Id header.
@@ -17,13 +17,15 @@ type Event interface {
 	Data() string
 }
 
-// If history is required, this interface will allow clients to reply previous events through the server.
-// Both methods can be called from different goroutines concurrently, so you must make sure they are go-routine safe.
+// Repository is an interface to be used with Server.Register() allowing clients to replay previous events
+// through the server, if history is required.
 type Repository interface {
-	// Gets the Events which should follow on from the specified channel and event id.
+	// Gets the Events which should follow on from the specified channel and event id. This method may be called
+	// from different goroutines, so it must be safe for concurrent access.
 	Replay(channel, id string) chan Event
 }
 
+// Logger is the interface for a custom logging implementation that can handle log output for a Stream.
 type Logger interface {
 	Println(...interface{})
 	Printf(string, ...interface{})
