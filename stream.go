@@ -66,7 +66,7 @@ func SubscribeWith(lastEventId string, client *http.Client, request *http.Reques
 		c:           client,
 		req:         request,
 		lastEventId: lastEventId,
-		retry:       time.Millisecond * 3000,
+		retry:       3000 * time.Millisecond,
 		Events:      make(chan Event),
 		Errors:      make(chan error),
 	}
