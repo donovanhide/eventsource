@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,11 +53,90 @@ func TestStreamSubscribeErrorsChan(t *testing.T) {
 
 	stream := mustSubscribe(t, httpServer.URL)
 	defer stream.Close()
+
 	closer <- struct{}{}
 
 	select {
 	case err := <-stream.Errors:
 		assert.Equal(t, io.EOF, err)
+	case <-time.After(timeToWaitForEvent):
+		t.Error("Timed out waiting for error event")
+	}
+}
+
+func TestStreamCanUseErrorHandlerInsteadOfChannelForErrorOnExistingConnection(t *testing.T) {
+	streamHandler1, _, closer1 := closeableStreamHandler()
+	streamHandler2, _, closer2 := closeableStreamHandler()
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.SequentialHandler(streamHandler1, streamHandler2))
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+	defer close(closer1)
+	defer close(closer2)
+
+	myErrChannel := make(chan error)
+	defer close(myErrChannel)
+
+	stream := mustSubscribe(t, httpServer.URL,
+		StreamOptionErrorHandler(func(err error) StreamErrorHandlerResult {
+			myErrChannel <- err
+			return StreamErrorHandlerResult{}
+		}),
+		StreamOptionInitialRetry(time.Millisecond))
+	defer stream.Close()
+	assert.Nil(t, stream.Errors)
+	<-requestsCh
+
+	closer1 <- struct{}{}
+
+	select {
+	case err := <-myErrChannel:
+		assert.Equal(t, io.EOF, err)
+		// wait for reconnection attempt
+		select {
+		case <-requestsCh:
+			return
+		case <-time.After(200 * time.Millisecond):
+			t.Error("Timed out waiting for reconnect")
+		}
+	case <-time.After(timeToWaitForEvent):
+		t.Error("Timed out waiting for error event")
+	}
+}
+
+func TestStreamErrorHandlerCanPreventRetryOnExistingConnection(t *testing.T) {
+	streamHandler1, _, closer1 := closeableStreamHandler()
+	streamHandler2, _, closer2 := closeableStreamHandler()
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.SequentialHandler(streamHandler1, streamHandler2))
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+	defer close(closer1)
+	defer close(closer2)
+
+	myErrChannel := make(chan error)
+	defer close(myErrChannel)
+
+	stream := mustSubscribe(t, httpServer.URL,
+		StreamOptionErrorHandler(func(err error) StreamErrorHandlerResult {
+			myErrChannel <- err
+			return StreamErrorHandlerResult{CloseNow: true}
+		}),
+		StreamOptionInitialRetry(time.Millisecond))
+	defer stream.Close()
+	assert.Nil(t, stream.Errors)
+	<-requestsCh
+
+	closer1 <- struct{}{}
+
+	select {
+	case err := <-myErrChannel:
+		assert.Equal(t, io.EOF, err)
+		// there should *not* be a reconnection attempt
+		select {
+		case <-requestsCh:
+			t.Error("Stream should not have reconnected, but did")
+		case <-time.After(200 * time.Millisecond):
+			return
+		}
 	case <-time.After(timeToWaitForEvent):
 		t.Error("Timed out waiting for error event")
 	}
@@ -576,6 +656,80 @@ func TestStreamCanRetryInitialConnectionUntilFiniteTimeout(t *testing.T) {
 	assert.Error(t, err)
 
 	assert.Equal(t, 2, len(requestsCh))
+}
+
+func TestStreamErrorHandlerCanAllowRetryOfInitialConnectionAfterNetworkError(t *testing.T) {
+	testStreamErrorHandlerCanAllowRetryOfInitialConnection(t, httphelpers.PanicHandler(errors.New("sorry")),
+		func(err error) {
+			if !strings.HasSuffix(err.Error(), "EOF") {
+				t.Errorf("expected EOF error, got %v", err)
+			}
+		})
+}
+
+func TestStreamErrorHandlerCanAllowRetryOfInitialConnectionAfterHTTPError(t *testing.T) {
+	testStreamErrorHandlerCanAllowRetryOfInitialConnection(t, httphelpers.HandlerWithStatus(401),
+		func(err error) {
+			assert.Equal(t, "error 401", err.Error())
+		})
+}
+
+func testStreamErrorHandlerCanAllowRetryOfInitialConnection(t *testing.T, errorHandler http.Handler, checkError func(error)) {
+	streamHandler, _, closer := closeableStreamHandler()
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.SequentialHandler(
+		errorHandler,
+		streamHandler))
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+	defer close(closer)
+
+	myErrChannel := make(chan error, 1)
+
+	stream, err := SubscribeWithURL(httpServer.URL,
+		StreamOptionInitialRetry(100*time.Millisecond),
+		StreamOptionCanRetryFirstConnection(150*time.Millisecond),
+		StreamOptionErrorHandler(func(err error) StreamErrorHandlerResult {
+			myErrChannel <- err
+			return StreamErrorHandlerResult{}
+		}))
+	defer func() {
+		if stream != nil {
+			stream.Close()
+		}
+	}()
+	assert.NoError(t, err)
+
+	assert.Equal(t, 1, len(myErrChannel))
+	e := <-myErrChannel
+	checkError(e)
+
+	assert.Equal(t, 2, len(requestsCh))
+}
+
+func TestStreamErrorHandlerCanPreventRetryOfInitialConnection(t *testing.T) {
+	connectionFailureHandler := httphelpers.PanicHandler(errors.New("sorry"))
+	streamHandler, _, closer := closeableStreamHandler()
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.SequentialHandler(
+		connectionFailureHandler,
+		streamHandler))
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+	defer close(closer)
+
+	stream, err := SubscribeWithURL(httpServer.URL,
+		StreamOptionInitialRetry(100*time.Millisecond),
+		StreamOptionCanRetryFirstConnection(150*time.Millisecond),
+		StreamOptionErrorHandler(func(err error) StreamErrorHandlerResult {
+			return StreamErrorHandlerResult{CloseNow: true}
+		}))
+	defer func() {
+		if stream != nil {
+			stream.Close()
+		}
+	}()
+	assert.Error(t, err)
+
+	assert.Equal(t, 1, len(requestsCh))
 }
 
 func mustSubscribe(t *testing.T, url string, options ...StreamOption) *Stream {

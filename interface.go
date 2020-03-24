@@ -30,3 +30,38 @@ type Logger interface {
 	Println(...interface{})
 	Printf(string, ...interface{})
 }
+
+// StreamErrorHandlerResult contains values returned by StreamErrorHandler.
+type StreamErrorHandlerResult struct {
+	// CloseNow can be set to true to tell the Stream to immediately stop and not retry, as if Close had
+	// been called.
+	//
+	// If CloseNow is false, the Stream will proceed as usual after an error: if there is an existing
+	// connection it will retry the connection, and if the Stream is still being initialized then the
+	// retry behavior is configurable (see StreamOptionCanRetryFirstConnection).
+	CloseNow bool
+}
+
+// StreamErrorHandler is a function type used with StreamOptionErrorHandler.
+//
+// This function will be called whenever Stream encounters either a network error or an HTTP error response
+// status. The returned value determines whether Stream should retry as usual, or immediately stop.
+//
+// The error may be any I/O error returned by Go's networking types, or it may be the eventsource type
+// SubscriptionError representing an HTTP error response status.
+//
+// For errors during initialization of the Stream, this function will be called on the same goroutine that
+// called the Subscribe method; for errors on an existing connection, it will be called on a worker
+// goroutine. It should return promptly and not block the goroutine.
+//
+// In this example, the error handler always logs the error with log.Printf, and it forces the stream to
+// close permanently if there was an HTTP 401 error:
+//
+//     func handleError(err error) eventsource.StreamErrorHandlerResult {
+//         log.Printf("stream error: %s", err)
+//         if se, ok := err.(eventsource.SubscriptionError); ok && se.Code == 401 {
+//             return eventsource.StreamErrorHandlerResult{CloseNow: true}
+//         }
+//         return eventsource.StreamErrorHandlerResult{}
+//     }
+type StreamErrorHandler func(error) StreamErrorHandlerResult

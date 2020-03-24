@@ -22,12 +22,21 @@ type Stream struct {
 	// Events emits the events received by the stream
 	Events chan Event
 	// Errors emits any errors encountered while reading events from the stream.
-	// It's mainly for informative purposes - the client isn't required to take any
-	// action when an error is encountered. The stream will always attempt to continue,
-	// even if that involves reconnecting to the server.
-	Errors chan error
-	// Logger is a logger that, when set, will be used for logging debug messages
-	Logger      Logger // Set with SetLogger if you want your code to be thread-safe
+	//
+	// Errors during initialization of the stream are not pushed to this channel, since until the
+	// Subscribe method has returned the caller would not be able to consume the channel. If you have
+	// configured the Stream to be able to retry on initialization errors, but you still want to know
+	// about those errors or control how they are handled, use StreamOptionErrorHandler.
+	//
+	// If an error handler has been specified with StreamOptionErrorHandler, the Errors channel is
+	// not used and will be nil.
+	Errors       chan error
+	errorHandler StreamErrorHandler
+	// Logger is a logger that, when set, will be used for logging informational messages.
+	//
+	// This field is exported for backward compatibility, but should not be set directly because
+	// it may be used by multiple goroutines. Use SetLogger instead.
+	Logger      Logger
 	closer      chan struct{}
 	closeOnce   sync.Once
 	mu          sync.RWMutex
@@ -47,7 +56,11 @@ type SubscriptionError struct {
 }
 
 func (e SubscriptionError) Error() string {
-	return fmt.Sprintf("%d: %s", e.Code, e.Message)
+	s := fmt.Sprintf("error %d", e.Code)
+	if e.Message != "" {
+		s = s + ": " + e.Message
+	}
+	return s
 }
 
 // Subscribe to the Events emitted from the specified url.
@@ -102,36 +115,7 @@ func SubscribeWithRequestAndOptions(request *http.Request, options ...StreamOpti
 		}
 	}
 
-	var backoff backoffStrategy
-	var jitter jitterStrategy
-	if configuredOptions.backoffMaxDelay > 0 {
-		backoff = newDefaultBackoff(configuredOptions.backoffMaxDelay)
-	}
-	if configuredOptions.jitterRatio > 0 {
-		jitter = newDefaultJitter(configuredOptions.jitterRatio, 0)
-	}
-	retryDelay := newRetryDelayStrategy(
-		configuredOptions.initialRetry,
-		configuredOptions.retryResetInterval,
-		backoff,
-		jitter,
-	)
-
-	stream := &Stream{
-		c:           configuredOptions.httpClient,
-		lastEventID: configuredOptions.lastEventID,
-		readTimeout: configuredOptions.readTimeout,
-		req:         request,
-		retryDelay:  retryDelay,
-		Events:      make(chan Event),
-		Errors:      make(chan error),
-		Logger:      configuredOptions.logger,
-		closer:      make(chan struct{}),
-	}
-
-	// override checkRedirect to include headers before go1.8
-	// we'd prefer to skip this because it is not thread-safe and breaks golang race condition checking
-	setCheckRedirect(stream.c)
+	stream := newStream(request, configuredOptions)
 
 	var initialRetryTimeoutCh <-chan time.Time
 	var lastError error
@@ -148,6 +132,14 @@ func SubscribeWithRequestAndOptions(request *http.Request, options ...StreamOpti
 		if configuredOptions.initialRetryTimeout == 0 {
 			return nil, err
 		}
+		if configuredOptions.errorHandler != nil {
+			result := configuredOptions.errorHandler(err)
+			if result.CloseNow {
+				return nil, err
+			}
+		}
+		// We never push errors to the Errors channel during initialization-- the caller would have no way to
+		// consume the channel, since we haven't returned a Stream instance.
 		delay := stream.retryDelay.NextRetryDelay(time.Now())
 		if configuredOptions.logger != nil {
 			configuredOptions.logger.Printf("Connection failed (%s), retrying in %0.4f secs\n", err, delay.Seconds())
@@ -163,6 +155,46 @@ func SubscribeWithRequestAndOptions(request *http.Request, options ...StreamOpti
 			continue
 		}
 	}
+}
+
+func newStream(request *http.Request, configuredOptions streamOptions) *Stream {
+	var backoff backoffStrategy
+	var jitter jitterStrategy
+	if configuredOptions.backoffMaxDelay > 0 {
+		backoff = newDefaultBackoff(configuredOptions.backoffMaxDelay)
+	}
+	if configuredOptions.jitterRatio > 0 {
+		jitter = newDefaultJitter(configuredOptions.jitterRatio, 0)
+	}
+	retryDelay := newRetryDelayStrategy(
+		configuredOptions.initialRetry,
+		configuredOptions.retryResetInterval,
+		backoff,
+		jitter,
+	)
+
+	stream := &Stream{
+		c:            configuredOptions.httpClient,
+		lastEventID:  configuredOptions.lastEventID,
+		readTimeout:  configuredOptions.readTimeout,
+		req:          request,
+		retryDelay:   retryDelay,
+		Events:       make(chan Event),
+		errorHandler: configuredOptions.errorHandler,
+		Logger:       configuredOptions.logger,
+		closer:       make(chan struct{}),
+	}
+
+	if configuredOptions.errorHandler == nil {
+		// The Errors channel is only used if there is no error handler.
+		stream.Errors = make(chan error)
+	}
+
+	// override checkRedirect to include headers before go1.8
+	// we'd prefer to skip this because it is not thread-safe and breaks golang race condition checking
+	setCheckRedirect(stream.c)
+
+	return stream
 }
 
 // Close will close the stream. It is safe for concurrent access and can be called multiple times.
@@ -221,6 +253,19 @@ func (stream *Stream) stream(r io.ReadCloser) {
 		})
 	}
 
+	reportErrorAndMaybeContinue := func(err error) bool {
+		if stream.errorHandler != nil {
+			result := stream.errorHandler(err)
+			if result.CloseNow {
+				stream.Close()
+				return false
+			}
+		} else if stream.Errors != nil {
+			stream.Errors <- err
+		}
+		return true
+	}
+
 NewStream:
 	for {
 		events := make(chan Event)
@@ -246,7 +291,9 @@ NewStream:
 		for {
 			select {
 			case err := <-errs:
-				stream.Errors <- err
+				if !reportErrorAndMaybeContinue(err) {
+					break NewStream
+				}
 				//nolint: gosec
 				_ = r.Close()
 				r = nil
@@ -278,7 +325,9 @@ NewStream:
 				r, err = stream.connect()
 				if err != nil {
 					r = nil
-					stream.Errors <- err
+					if !reportErrorAndMaybeContinue(err) {
+						break NewStream
+					}
 					scheduleRetry()
 				}
 				continue NewStream
@@ -286,7 +335,9 @@ NewStream:
 		}
 	}
 
-	close(stream.Errors)
+	if stream.Errors != nil {
+		close(stream.Errors)
+	}
 	close(stream.Events)
 }
 

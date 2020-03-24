@@ -15,6 +15,7 @@ type streamOptions struct {
 	readTimeout         time.Duration
 	retryResetInterval  time.Duration
 	initialRetryTimeout time.Duration
+	errorHandler        StreamErrorHandler
 }
 
 // StreamOption is a common interface for optional configuration parameters that can be
@@ -206,6 +207,32 @@ func (o loggerOption) apply(s *streamOptions) error {
 // is created (to change it later, you can use SetLogger). By default, there is no logger.
 func StreamOptionLogger(logger Logger) StreamOption {
 	return loggerOption{logger: logger}
+}
+
+type streamErrorHandlerOption struct {
+	handler StreamErrorHandler
+}
+
+func (o streamErrorHandlerOption) apply(s *streamOptions) error {
+	s.errorHandler = o.handler
+	return nil
+}
+
+// StreamOptionErrorHandler returns an option that causes a Stream to call the specified function
+// for stream errors.
+//
+// If non-nil, this function will be called whenever Stream encounters either a network error or an
+// HTTP error response status. The returned value determines whether Stream should retry as usual,
+// or immediately stop as if Close had been called.
+//
+// When used, this mechanism replaces the Errors channel; that channel will be pre-closed and Stream
+// will not push any errors to it, so the caller does not need to consume the channel.
+//
+// Note that using a handler is the only way to have control over how Stream handles errors during
+// the initial connection attempt, since there would be no way for the caller to consume the Errors
+// channel before the Subscribe method has returned.
+func StreamOptionErrorHandler(handler StreamErrorHandler) StreamOption {
+	return streamErrorHandlerOption{handler}
 }
 
 const (
