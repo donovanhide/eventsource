@@ -1,0 +1,7 @@
+
+template:
+  name: go
+
+publications:
+  - url: https://godoc.org/github.com/launchdarkly/eventsource
+    description: documentation
