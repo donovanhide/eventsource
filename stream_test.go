@@ -2,8 +2,9 @@ package eventsource
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,9 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/launchdarkly/go-test-helpers/httphelpers"
+	"github.com/stretchr/testify/assert"
 )
 
 const (
@@ -19,17 +23,16 @@ const (
 )
 
 func TestStreamSubscribeEventsChan(t *testing.T) {
-	server := NewServer()
-	httpServer := httptest.NewServer(server.Handler(eventChannelName))
-	// The server has to be closed before the httpServer is closed.
-	// Otherwise the httpServer has still an open connection and it can not close.
+	streamHandler, events, closer := closeableStreamHandler()
+	httpServer := httptest.NewServer(streamHandler)
 	defer httpServer.Close()
-	defer server.Close()
+	defer close(closer)
 
 	stream := mustSubscribe(t, httpServer.URL)
+	defer stream.Close()
 
 	publishedEvent := &publication{id: "123"}
-	server.Publish([]string{eventChannelName}, publishedEvent)
+	events <- publishedEvent
 
 	select {
 	case receivedEvent := <-stream.Events:
@@ -42,31 +45,28 @@ func TestStreamSubscribeEventsChan(t *testing.T) {
 }
 
 func TestStreamSubscribeErrorsChan(t *testing.T) {
-	server := NewServer()
-	httpServer := httptest.NewServer(server.Handler(eventChannelName))
-
+	streamHandler, _, closer := closeableStreamHandler()
+	httpServer := httptest.NewServer(streamHandler)
 	defer httpServer.Close()
+	defer close(closer)
 
 	stream := mustSubscribe(t, httpServer.URL)
-	server.Close()
+	defer stream.Close()
+	closer <- struct{}{}
 
 	select {
 	case err := <-stream.Errors:
-		if err != io.EOF {
-			t.Errorf("got error %+v, want %+v", err, io.EOF)
-		}
+		assert.Equal(t, io.EOF, err)
 	case <-time.After(timeToWaitForEvent):
 		t.Error("Timed out waiting for error event")
 	}
 }
 
 func TestStreamClose(t *testing.T) {
-	server := NewServer()
-	httpServer := httptest.NewServer(server.Handler(eventChannelName))
-	// The server has to be closed before the httpServer is closed.
-	// Otherwise the httpServer has still an open connection and it can not close.
+	streamHandler, _, closer := closeableStreamHandler()
+	httpServer := httptest.NewServer(streamHandler)
 	defer httpServer.Close()
-	defer server.Close()
+	defer close(closer)
 
 	stream := mustSubscribe(t, httpServer.URL)
 	stream.Close()
@@ -93,17 +93,16 @@ func TestStreamClose(t *testing.T) {
 }
 
 func TestStreamReconnect(t *testing.T) {
-	server := NewServer()
-	httpServer := httptest.NewServer(server.Handler(eventChannelName))
-	// The server has to be closed before the httpServer is closed.
-	// Otherwise the httpServer has still an open connection and it can not close.
+	streamHandler, events, closer := closeableStreamHandler()
+	httpServer := httptest.NewServer(streamHandler)
 	defer httpServer.Close()
-	defer server.Close()
+	defer close(closer)
 
-	stream := mustSubscribe(t, httpServer.URL)
-	stream.setRetry(time.Millisecond)
+	stream := mustSubscribe(t, httpServer.URL, StreamOptionInitialRetry(time.Millisecond))
+	defer stream.Close()
+
 	publishedEvent := &publication{id: "123"}
-	server.Publish([]string{eventChannelName}, publishedEvent)
+	events <- publishedEvent
 
 	select {
 	case <-stream.Events:
@@ -112,7 +111,7 @@ func TestStreamReconnect(t *testing.T) {
 		return
 	}
 
-	httpServer.CloseClientConnections()
+	closer <- struct{}{}
 
 	// Expect at least one error
 	select {
@@ -122,11 +121,7 @@ func TestStreamReconnect(t *testing.T) {
 		return
 	}
 
-	go func() {
-		// Publish again after we've reconnected
-		time.Sleep(time.Second)
-		server.Publish([]string{eventChannelName}, publishedEvent)
-	}()
+	events <- publishedEvent
 
 	// Consume errors until we've got another event
 	for {
@@ -144,72 +139,68 @@ func TestStreamReconnect(t *testing.T) {
 	}
 }
 
-func TestStreamReconnectWithReportSendsBodyTwice(t *testing.T) {
-	connections := make(chan struct{}, 2)
-	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := ioutil.ReadAll(r.Body)
-		if string(body) != "my-body" {
-			t.Error("didn't get expected body")
-		}
-		connections <- struct{}{}
-		ticker := time.NewTicker(time.Millisecond)
-		defer ticker.Stop()
-		for range ticker.C {
-			// Just send comments
-			if _, err := w.Write([]byte(":\n")); err != nil {
-				return
-			}
-		}
-	}))
+func TestStreamSendsLastEventID(t *testing.T) {
+	streamHandler, _, closer := closeableStreamHandler()
+	handler, requestsCh := httphelpers.RecordingHandler(streamHandler)
 
+	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
+	defer close(closer)
 
-	req, _ := http.NewRequest("REPORT", httpServer.URL, bytes.NewBufferString("my-body"))
+	lastID := "xyz"
+	stream := mustSubscribe(t, httpServer.URL, StreamOptionLastEventID(lastID))
+	defer stream.Close()
+
+	r0 := <-requestsCh
+	assert.Equal(t, lastID, r0.Request.Header.Get("Last-Event-ID"))
+}
+
+func TestStreamReconnectWithReportSendsBodyTwice(t *testing.T) {
+	body := []byte("my-body")
+
+	streamHandler, _, closer := closeableStreamHandler()
+	handler, requestsCh := httphelpers.RecordingHandler(streamHandler)
+
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+	defer close(closer)
+
+	req, _ := http.NewRequest("REPORT", httpServer.URL, bytes.NewBuffer(body))
 	if req.GetBody == nil {
 		t.Fatalf("Expected get body to be set")
 	}
-	stream, err := SubscribeWithRequest("", req)
+	stream, err := SubscribeWithRequestAndOptions(req, StreamOptionInitialRetry(time.Millisecond))
 	if err != nil {
 		t.Fatalf("Failed to subscribe: %s", err)
 		return
 	}
+	defer stream.Close()
 
-	// Acknowledge initial connection
-	<-connections
+	// Wait for the first request
+	r0 := <-requestsCh
 
-	stream.setRetry(time.Millisecond)
+	// Allow the stream to reconnect once; get the second request
+	closer <- struct{}{}
+	<-stream.Errors // Accept the error to unblock the retry handler
+	r1 := <-requestsCh
 
-	// Kick everyone off
-	httpServer.CloseClientConnections()
-
-	// Accept the error to unblock the retry handler
-	<-stream.Errors
-
-	// Wait for a second connection attempt
-WaitForSecondConnection:
-	for {
-		select {
-		case <-connections:
-			break WaitForSecondConnection
-		case <-time.After(2 * time.Second):
-			t.Fatalf("Timed out waiting for second connection")
-			return
-		}
-	}
 	stream.Close()
 
-	// Speed up the close by eliminating current connections
-	httpServer.CloseClientConnections()
+	assert.Equal(t, body, r0.Body)
+	assert.Equal(t, body, r1.Body)
 }
 
 func TestStreamCloseWhileReconnecting(t *testing.T) {
-	server := NewServer()
-	httpServer := httptest.NewServer(server.Handler(eventChannelName))
+	streamHandler, events, closer := closeableStreamHandler()
+	httpServer := httptest.NewServer(streamHandler)
+	defer httpServer.Close()
+	defer close(closer)
 
-	stream := mustSubscribe(t, httpServer.URL)
-	stream.setRetry(time.Hour)
+	stream := mustSubscribe(t, httpServer.URL, StreamOptionInitialRetry(time.Hour))
+	defer stream.Close()
+
 	publishedEvent := &publication{id: "123"}
-	server.Publish([]string{eventChannelName}, publishedEvent)
+	events <- publishedEvent
 
 	select {
 	case <-stream.Events:
@@ -218,8 +209,7 @@ func TestStreamCloseWhileReconnecting(t *testing.T) {
 		return
 	}
 
-	server.Close()
-	httpServer.Close()
+	closer <- struct{}{}
 
 	// Expect at least one error
 	select {
@@ -253,19 +243,20 @@ func TestStreamCloseWhileReconnecting(t *testing.T) {
 func TestStreamReadTimeout(t *testing.T) {
 	timeout := time.Millisecond * 200
 
-	server := NewServer()
-	server.ReplayAll = true
-	publishedEvent := &publication{data: "123"}
-	repo := NewSliceRepository()
-	repo.Add(eventChannelName, publishedEvent)
-	server.Register(eventChannelName, repo)
-	// this makes it send exactly one event for each connection
-	httpServer := httptest.NewServer(server.Handler(eventChannelName))
+	streamHandler1, events1, closer1 := closeableStreamHandler()
+	streamHandler2, events2, closer2 := closeableStreamHandler()
+	httpServer := httptest.NewServer(httphelpers.SequentialHandler(streamHandler1, streamHandler2))
 	defer httpServer.Close()
-	defer server.Close()
+	defer close(closer1)
+	defer close(closer2)
 
 	stream := mustSubscribe(t, httpServer.URL, StreamOptionReadTimeout(timeout),
 		StreamOptionInitialRetry(time.Millisecond))
+	defer stream.Close()
+
+	publishedEvent := &publication{id: "123"}
+	events1 <- publishedEvent
+	events2 <- publishedEvent
 
 	var receivedEvents []Event
 	var receivedErrors []error
@@ -300,31 +291,32 @@ ReadLoop:
 func TestStreamReadTimeoutIsPreventedByComment(t *testing.T) {
 	timeout := time.Millisecond * 200
 
-	server := NewServer()
-	server.ReplayAll = true
-	publishedEvent := &publication{data: "123"}
-	repo := NewSliceRepository()
-	repo.Add(eventChannelName, publishedEvent)
-	server.Register(eventChannelName, repo)
-	// this makes it send exactly one event for each connection
-	httpServer := httptest.NewServer(server.Handler(eventChannelName))
+	streamHandler1, events1, closer1 := closeableStreamHandler()
+	streamHandler2, _, closer2 := closeableStreamHandler()
+	httpServer := httptest.NewServer(httphelpers.SequentialHandler(streamHandler1, streamHandler2))
 	defer httpServer.Close()
-	defer server.Close()
+	defer close(closer1)
+	defer close(closer2)
 
 	stream := mustSubscribe(t, httpServer.URL, StreamOptionReadTimeout(timeout),
 		StreamOptionInitialRetry(time.Millisecond))
+	defer stream.Close()
+
+	publishedEvent := &publication{id: "123"}
+	events1 <- publishedEvent
 
 	var receivedEvents []Event
 	var receivedErrors []error
 
 	waitUntil := time.After(timeout + (timeout / 2))
-	time.Sleep(time.Duration(float64(timeout) * 0.75))
-	server.PublishComment([]string{eventChannelName}, "")
+
 ReadLoop:
 	for {
 		select {
 		case e := <-stream.Events:
 			receivedEvents = append(receivedEvents, e)
+			time.Sleep(time.Duration(float64(timeout) * 0.75))
+			events1 <- nil // nil causes the handler to send a comment
 		case err := <-stream.Errors:
 			receivedErrors = append(receivedErrors, err)
 		case <-waitUntil:
@@ -342,11 +334,298 @@ ReadLoop:
 	}
 }
 
+func TestStreamCanUseBackoff(t *testing.T) {
+	streamHandler, _, closer := closeableStreamHandler()
+	httpServer := httptest.NewServer(streamHandler)
+	defer httpServer.Close()
+	defer close(closer)
+
+	baseDelay := time.Millisecond
+	stream := mustSubscribe(t, httpServer.URL,
+		StreamOptionInitialRetry(baseDelay),
+		StreamOptionUseBackoff(time.Minute))
+	defer stream.Close()
+
+	retry := stream.getRetryDelayStrategy()
+	assert.False(t, retry.hasJitter())
+	d0 := retry.NextRetryDelay(time.Now())
+	d1 := retry.NextRetryDelay(time.Now())
+	d2 := retry.NextRetryDelay(time.Now())
+	assert.Equal(t, baseDelay, d0)
+	assert.Equal(t, baseDelay*2, d1)
+	assert.Equal(t, baseDelay*4, d2)
+}
+
+func TestStreamCanUseJitter(t *testing.T) {
+	streamHandler, _, closer := closeableStreamHandler()
+	httpServer := httptest.NewServer(streamHandler)
+	defer httpServer.Close()
+	defer close(closer)
+
+	baseDelay := time.Millisecond
+	stream := mustSubscribe(t, httpServer.URL,
+		StreamOptionInitialRetry(baseDelay),
+		StreamOptionUseBackoff(time.Minute),
+		StreamOptionUseJitter(0.5))
+	defer stream.Close()
+
+	retry := stream.getRetryDelayStrategy()
+	assert.True(t, retry.hasJitter())
+	d0 := retry.NextRetryDelay(time.Now())
+	d1 := retry.NextRetryDelay(time.Now())
+	assert.True(t, d0 >= baseDelay/2)
+	assert.True(t, d0 <= baseDelay)
+	assert.True(t, d1 >= baseDelay)
+	assert.True(t, d1 <= baseDelay*2)
+}
+
+func TestStreamCanSetMaximumDelayWithBackoff(t *testing.T) {
+	streamHandler, _, closer := closeableStreamHandler()
+	httpServer := httptest.NewServer(streamHandler)
+	defer httpServer.Close()
+	defer close(closer)
+
+	baseDelay := time.Millisecond
+	max := baseDelay * 3
+	stream := mustSubscribe(t, httpServer.URL,
+		StreamOptionInitialRetry(baseDelay),
+		StreamOptionUseBackoff(max))
+	defer stream.Close()
+
+	retry := stream.getRetryDelayStrategy()
+	assert.False(t, retry.hasJitter())
+	d0 := retry.NextRetryDelay(time.Now())
+	d1 := retry.NextRetryDelay(time.Now())
+	d2 := retry.NextRetryDelay(time.Now())
+	assert.Equal(t, baseDelay, d0)
+	assert.Equal(t, baseDelay*2, d1)
+	assert.Equal(t, max, d2)
+}
+
+func TestStreamBackoffCanUseResetInterval(t *testing.T) {
+	// In this test, streamHandler1 sends an event, then breaks the connection too soon for the delay to be
+	// reset. We ask the retryDelayStrategy to compute the next delay; it should be higher than the initial
+	// value. Then streamHandler2 sends an event, and we verify that the next delay that *would* come from the
+	// retryDelayStrategy if the reset interval elapsed would be the initial delay, not a higher value.
+	streamHandler1, events1, closer1 := closeableStreamHandler()
+	streamHandler2, events2, closer2 := closeableStreamHandler()
+	httpServer := httptest.NewServer(httphelpers.SequentialHandler(streamHandler1, streamHandler2))
+	defer httpServer.Close()
+	defer close(closer1)
+	defer close(closer2)
+
+	baseDelay := time.Millisecond
+	resetInterval := time.Millisecond * 200
+	stream := mustSubscribe(t, httpServer.URL,
+		StreamOptionInitialRetry(baseDelay),
+		StreamOptionUseBackoff(time.Hour),
+		StreamOptionRetryResetInterval(resetInterval))
+	defer stream.Close()
+
+	retry := stream.getRetryDelayStrategy()
+
+	// The first stream connection sends an event, so the stream state becomes "good".
+	publishedEvent := &publication{id: "123"}
+	events1 <- publishedEvent
+	<-stream.Events
+
+	// We ask the retryDelayStrategy to compute the next two delay values; they should show an increase.
+	d0 := retry.NextRetryDelay(time.Now())
+	d1 := retry.NextRetryDelay(time.Now())
+	assert.Equal(t, baseDelay, d0)
+	assert.Equal(t, baseDelay*2, d1)
+
+	// The first connection is broken; the state becomes "bad".
+	closer1 <- struct{}{}
+	<-stream.Errors
+
+	// After it reconnects, the second connection receives an event and the state becomes "good" again.
+	events2 <- publishedEvent
+	<-stream.Events
+
+	// Now, ask the retryDelayStrategy what the next delay value would be if the next attempt happened
+	// 200 milliseconds from now (assuming the stream remained good). It should go back to baseDelay.
+	d2 := retry.NextRetryDelay(time.Now().Add(resetInterval))
+	assert.Equal(t, baseDelay, d2)
+}
+
+func TestStreamCanChangeRetryDelayBasedOnEvent(t *testing.T) {
+	streamHandler, events, closer := closeableStreamHandler()
+	httpServer := httptest.NewServer(streamHandler)
+	defer httpServer.Close()
+	defer close(closer)
+
+	baseDelay := time.Millisecond
+	stream := mustSubscribe(t, httpServer.URL, StreamOptionInitialRetry(baseDelay))
+	defer stream.Close()
+
+	newRetryMillis := int64(3000)
+	event := &publication{event: "event1", data: "a", retry: newRetryMillis}
+	events <- event
+
+	<-stream.Events
+
+	retry := stream.getRetryDelayStrategy()
+	d := retry.NextRetryDelay(time.Now())
+	assert.Equal(t, time.Millisecond*time.Duration(newRetryMillis), d)
+}
+
+func TestStreamCanUseCustomClient(t *testing.T) {
+	streamHandler, _, closer := closeableStreamHandler()
+	handler, requestsCh := httphelpers.RecordingHandler(streamHandler)
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+	defer close(closer)
+
+	client := *http.DefaultClient
+	client.Transport = urlSuffixingRoundTripper{http.DefaultTransport, "path"}
+
+	stream := mustSubscribe(t, httpServer.URL, StreamOptionHTTPClient(&client))
+	defer stream.Close()
+
+	r := <-requestsCh
+	assert.Equal(t, "/path", r.Request.URL.Path)
+}
+
+func TestStreamDoesNotRetryInitialConnectionByDefault(t *testing.T) {
+	connectionFailureHandler := httphelpers.PanicHandler(errors.New("sorry"))
+	streamHandler, _, closer := closeableStreamHandler()
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.SequentialHandler(connectionFailureHandler, streamHandler))
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+	defer close(closer)
+
+	stream, err := SubscribeWithURL(httpServer.URL)
+	defer func() {
+		if stream != nil {
+			stream.Close()
+		}
+	}()
+	assert.Error(t, err)
+
+	assert.Equal(t, 1, len(requestsCh))
+}
+
+func TestStreamCanRetryInitialConnection(t *testing.T) {
+	connectionFailureHandler := httphelpers.PanicHandler(errors.New("sorry"))
+	streamHandler, _, closer := closeableStreamHandler()
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.SequentialHandler(
+		connectionFailureHandler,
+		connectionFailureHandler,
+		streamHandler))
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+	defer close(closer)
+
+	stream, err := SubscribeWithURL(httpServer.URL,
+		StreamOptionInitialRetry(time.Millisecond),
+		StreamOptionCanRetryFirstConnection(time.Second*2))
+	defer func() {
+		if stream != nil {
+			stream.Close()
+		}
+	}()
+	assert.NoError(t, err)
+
+	assert.Equal(t, 3, len(requestsCh))
+}
+
+func TestStreamCanRetryInitialConnectionWithIndefiniteTimeout(t *testing.T) {
+	connectionFailureHandler := httphelpers.PanicHandler(errors.New("sorry"))
+	streamHandler, _, closer := closeableStreamHandler()
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.SequentialHandler(
+		connectionFailureHandler,
+		connectionFailureHandler,
+		streamHandler))
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+	defer close(closer)
+
+	stream, err := SubscribeWithURL(httpServer.URL,
+		StreamOptionInitialRetry(time.Millisecond),
+		StreamOptionCanRetryFirstConnection(-1))
+	defer func() {
+		if stream != nil {
+			stream.Close()
+		}
+	}()
+	assert.NoError(t, err)
+
+	assert.Equal(t, 3, len(requestsCh))
+}
+
+func TestStreamCanRetryInitialConnectionUntilFiniteTimeout(t *testing.T) {
+	connectionFailureHandler := httphelpers.PanicHandler(errors.New("sorry"))
+	streamHandler, _, closer := closeableStreamHandler()
+	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.SequentialHandler(
+		connectionFailureHandler,
+		connectionFailureHandler,
+		streamHandler))
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+	defer close(closer)
+
+	stream, err := SubscribeWithURL(httpServer.URL,
+		StreamOptionInitialRetry(100*time.Millisecond),
+		StreamOptionCanRetryFirstConnection(150*time.Millisecond))
+	defer func() {
+		if stream != nil {
+			stream.Close()
+		}
+	}()
+	assert.Error(t, err)
+
+	assert.Equal(t, 2, len(requestsCh))
+}
+
 func mustSubscribe(t *testing.T, url string, options ...StreamOption) *Stream {
-	stream, err := SubscribeWithURL(url, options...)
+	logger := log.New(os.Stderr, "", log.LstdFlags)
+	allOpts := append(options, StreamOptionLogger(logger))
+	stream, err := SubscribeWithURL(url, allOpts...)
 	if err != nil {
 		t.Fatalf("Failed to subscribe: %s", err)
 	}
-	stream.SetLogger(log.New(os.Stderr, "", log.LstdFlags))
 	return stream
+}
+
+func closeableStreamHandler() (http.Handler, chan<- Event, chan<- struct{}) {
+	eventsCh := make(chan Event, 10)
+	closerCh := make(chan struct{}, 10)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Content-Type", "text/event-stream")
+		w.Header().Add("Transfer-Encoding", "chunked")
+		w.WriteHeader(200)
+		w.(http.Flusher).Flush()
+		enc := NewEncoder(w, false)
+		for {
+			select {
+			case e := <-eventsCh:
+				if e == nil {
+					enc.Encode(comment{""})
+				} else {
+					if p, ok := e.(*publication); ok {
+						if p.Retry() > 0 { // Encoder doesn't support the retry: attribute
+							w.Write([]byte(fmt.Sprintf("retry:%d\n", p.Retry())))
+						}
+					}
+					enc.Encode(e)
+				}
+				w.(http.Flusher).Flush()
+			case <-closerCh:
+				return
+			}
+		}
+	})
+	return handler, eventsCh, closerCh
+}
+
+type urlSuffixingRoundTripper struct {
+	transport http.RoundTripper
+	suffix    string
+}
+
+func (u urlSuffixingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	url1, _ := req.URL.Parse(u.suffix)
+	req.URL = url1
+	return u.transport.RoundTrip(req)
 }

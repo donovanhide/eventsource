@@ -14,6 +14,7 @@ jobs:
     steps:
       - checkout
       - run: go get -u $COMMON_GO_PACKAGES
+      - run: go get -t ./...
 
       - run: |
           mkdir -p $CIRCLE_TEST_REPORTS
