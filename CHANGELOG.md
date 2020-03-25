@@ -2,6 +2,11 @@
 
 All notable changes to the project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [1.4.0] - 2020-03-25
+### Added:
+- New option `StreamOptionErrorHandler` provides an alternate way to receive errors and control how `Stream` behaves after an error.
+- New `Stream` method `Restart()` provides a way to make the stream reconnect at any time even if it has not detected an error, using the same retry semantics (backoff, jitter, etc.) that have already been configured.
+
 ## [1.3.0] - 2020-03-24
 ### Added:
 - New option `StreamOptionUseBackoff` allows `Stream` to be configured to use exponential backoff for reconnections. There was existing logic for exponential backoff, but it was not working, so until now the retry delay was always the same; for backward compatibility with that behavior, the default is still to not use backoff.
