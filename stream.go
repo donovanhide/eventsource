@@ -37,6 +37,7 @@ type Stream struct {
 	// This field is exported for backward compatibility, but should not be set directly because
 	// it may be used by multiple goroutines. Use SetLogger instead.
 	Logger      Logger
+	restarter   chan struct{}
 	closer      chan struct{}
 	closeOnce   sync.Once
 	mu          sync.RWMutex
@@ -182,6 +183,7 @@ func newStream(request *http.Request, configuredOptions streamOptions) *Stream {
 		Events:       make(chan Event),
 		errorHandler: configuredOptions.errorHandler,
 		Logger:       configuredOptions.logger,
+		restarter:    make(chan struct{}, 1),
 		closer:       make(chan struct{}),
 	}
 
@@ -197,7 +199,27 @@ func newStream(request *http.Request, configuredOptions streamOptions) *Stream {
 	return stream
 }
 
-// Close will close the stream. It is safe for concurrent access and can be called multiple times.
+// Restart forces the stream to drop the currently active connection and attempt to connect again, in the
+// same way it would if the connection had failed. There will be a delay before reconnection, as defined
+// by the Stream configuration (StreamOptionInitialRetry, StreamOptionUseBackoff, etc.).
+//
+// This method is safe for concurrent access. Its behavior is asynchronous: Restart returns immediately
+// and the connection is restarted as soon as possible from another goroutine after that. It is possible
+// for additional events from the original connection to be delivered during that interval.ssible.
+//
+// If the stream has already been closed with Close, Restart has no effect.
+func (stream *Stream) Restart() {
+	// Note the non-blocking send: if there's already been a Restart call that hasn't been processed yet,
+	// we'll just leave that one in the channel.
+	select {
+	case stream.restarter <- struct{}{}:
+		break
+	default:
+		break
+	}
+}
+
+// Close closes the stream permanently. It is safe for concurrent access and can be called multiple times.
 func (stream *Stream) Close() {
 	stream.closeOnce.Do(func() {
 		close(stream.closer)
@@ -288,15 +310,29 @@ NewStream:
 			}()
 		}
 
+		discardCurrentStream := func() {
+			if r != nil {
+				_ = r.Close() //nolint: gosec
+				r = nil
+				// allow the decoding goroutine to terminate
+				for range errs {
+				}
+				for range events {
+				}
+			}
+		}
+
 		for {
 			select {
+			case <-stream.restarter:
+				discardCurrentStream()
+				scheduleRetry()
+				continue NewStream
 			case err := <-errs:
 				if !reportErrorAndMaybeContinue(err) {
 					break NewStream
 				}
-				//nolint: gosec
-				_ = r.Close()
-				r = nil
+				discardCurrentStream()
 				scheduleRetry()
 				continue NewStream
 			case ev := <-events:
@@ -310,15 +346,7 @@ NewStream:
 				stream.retryDelay.SetGoodSince(time.Now())
 				stream.Events <- ev
 			case <-stream.closer:
-				if r != nil {
-					//nolint: gosec
-					_ = r.Close()
-					// allow the decoding goroutine to terminate
-					for range errs {
-					}
-					for range events {
-					}
-				}
+				discardCurrentStream()
 				break NewStream
 			case <-retryChan:
 				var err error
