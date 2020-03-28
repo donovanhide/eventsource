@@ -87,3 +87,20 @@ func TestBackoffResetInterval(t *testing.T) {
 	d3 := r.NextRetryDelay(t5)
 	assert.Equal(t, d0, d3)
 }
+
+func TestBackoffAndJitterWorkWithHighRetryCount(t *testing.T) {
+	// This test verifies that we do not get numeric overflow errors due to using a very high exponential
+	// backoff number in calculations before it has been pinned to the maximum value. The jitter algorithm
+	// uses 63-bit values, so it will fail if there is a time.Duration value greater than about 292 years,
+	// which is unlikely to be a desirable backoff interval.
+	d0 := time.Second
+	max := 365 * 200 * 24 * time.Hour // 200 years
+	retryCount := 35                  // 2^35 seconds exceeds a 63-bit count of nanoseconds
+
+	backoff := newDefaultBackoff(max)
+	jitter := newDefaultJitter(0.5, 1)
+
+	d1 := backoff.applyBackoff(d0, retryCount)
+	_ = jitter.applyJitter(d1)
+	// No assertion - the test just needs to not panic.
+}

@@ -53,11 +53,8 @@ func newDefaultBackoff(maxDelay time.Duration) backoffStrategy {
 }
 
 func (s defaultBackoffStrategy) applyBackoff(baseDelay time.Duration, retryCount int) time.Duration {
-	d := time.Duration(int64(baseDelay) * int64(math.Pow(2, float64(retryCount))))
-	if d > s.maxDelay {
-		return s.maxDelay
-	}
-	return d
+	d := math.Min(float64(baseDelay)*math.Pow(2, float64(retryCount)), float64(s.maxDelay))
+	return time.Duration(d)
 }
 
 type defaultJitterStrategy struct {
