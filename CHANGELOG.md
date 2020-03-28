@@ -2,6 +2,10 @@
 
 All notable changes to the project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [1.4.1] - 2020-03-27
+### Fixed:
+- An error in the backoff logic added in v1.4.0 could cause a panic after many successive retries, due to the exponential backoff value exceeding `math.MaxInt64` resulting in a negative number being passed to `random.Int63n`.
+
 ## [1.4.0] - 2020-03-25
 ### Added:
 - New option `StreamOptionErrorHandler` provides an alternate way to receive errors and control how `Stream` behaves after an error.
