@@ -2,6 +2,10 @@
 
 All notable changes to the project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [1.4.2] - 2020-06-04
+### Added:
+- Added `go.mod` so this package can be consumed as a module. This does not affect code that is currently consuming it via `go get`, `dep`, or `govendor`.
+
 ## [1.4.1] - 2020-03-27
 ### Fixed:
 - An error in the backoff logic added in v1.4.0 could cause a panic after many successive retries, due to the exponential backoff value exceeding `math.MaxInt64` resulting in a negative number being passed to `random.Int63n`.
