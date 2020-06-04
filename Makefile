@@ -6,7 +6,6 @@ LINTER_VERSION_FILE=./bin/.golangci-lint-version-$(GOLANGCI_LINT_VERSION)
 SHELL=/bin/bash
 
 test:
-	go get -t ./...
 	go test -race -v ./...
 
 $(LINTER_VERSION_FILE):

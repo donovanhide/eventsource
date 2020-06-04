@@ -12,21 +12,31 @@ workflows:
       - go-test:
           name: Go 1.12
           docker-image: circleci/golang:1.12
+          with-modules: false
+          work-dir: /go/src/github.com/launchdarkly/eventsource
       - go-test:
           name: Go 1.11
           docker-image: circleci/golang:1.11
+          with-modules: false
+          work-dir: /go/src/github.com/launchdarkly/eventsource
       - go-test:
           name: Go 1.10
           docker-image: circleci/golang:1.10
           run-lint: false # the version of golangci-lint we're using doesn't work with older Go versions
+          with-modules: false
+          work-dir: /go/src/github.com/launchdarkly/eventsource
       - go-test:
           name: Go 1.9
           docker-image: circleci/golang:1.9
           run-lint: false # the version of golangci-lint we're using doesn't work with older Go versions
+          with-modules: false
+          work-dir: /go/src/github.com/launchdarkly/eventsource
       - go-test:
           name: Go 1.8
           docker-image: circleci/golang:1.8
           run-lint: false # the version of golangci-lint we're using doesn't work with older Go versions
+          with-modules: false
+          work-dir: /go/src/github.com/launchdarkly/eventsource
 
 jobs:
   go-test:
@@ -36,13 +46,19 @@ jobs:
       run-lint:
         type: boolean
         default: true
+      with-modules:
+        type: boolean
+        default: true
+      work-dir:
+        type: string
+        default: ~/project
 
     docker:
       - image: <<parameters.docker-image>>
         environment:
           CIRCLE_TEST_REPORTS: /tmp/circle-reports
 
-    working_directory: /go/src/github.com/launchdarkly/eventsource
+    working_directory: <<parameters.work-dir>>
 
     steps:
       - checkout
@@ -50,6 +66,13 @@ jobs:
       - run:
           name: install go-junit-report
           command: go get -u github.com/jstemmer/go-junit-report
+
+      - unless:
+          condition: <<parameters.with-modules>>
+          steps:
+            - run:
+                name: get dependencies
+                command: go get -t .
 
       - run:
           name: build and test
