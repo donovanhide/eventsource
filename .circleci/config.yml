@@ -36,9 +36,6 @@ jobs:
       run-lint:
         type: boolean
         default: true
-      work-dir:
-        type: string
-        default: ~/project
 
     docker:
       - image: <<parameters.docker-image>>
