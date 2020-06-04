@@ -1,32 +1,91 @@
+version: 2.1
+
+workflows:
+  workflow:
+    jobs:
+      - go-test:
+          name: Go 1.14
+          docker-image: circleci/golang:1.14
+      - go-test:
+          name: Go 1.13
+          docker-image: circleci/golang:1.13
+      - go-test:
+          name: Go 1.12
+          docker-image: circleci/golang:1.12
+          with-modules: false
+          work-dir: /go/src/github.com/launchdarkly/eventsource
+      - go-test:
+          name: Go 1.11
+          docker-image: circleci/golang:1.11
+          with-modules: false
+          work-dir: /go/src/github.com/launchdarkly/eventsource
+      - go-test:
+          name: Go 1.10
+          docker-image: circleci/golang:1.10
+          run-lint: false # the version of golangci-lint we're using doesn't work with older Go versions
+          with-modules: false
+          work-dir: /go/src/github.com/launchdarkly/eventsource
+      - go-test:
+          name: Go 1.9
+          docker-image: circleci/golang:1.9
+          run-lint: false # the version of golangci-lint we're using doesn't work with older Go versions
+          with-modules: false
+          work-dir: /go/src/github.com/launchdarkly/eventsource
+      - go-test:
+          name: Go 1.8
+          docker-image: circleci/golang:1.8
+          run-lint: false # the version of golangci-lint we're using doesn't work with older Go versions
+          with-modules: false
+          work-dir: /go/src/github.com/launchdarkly/eventsource
+
 version: 2
 
 jobs:
   go-test:
-    working_directory: /go/src/github.com/launchdarkly/eventsource
+    parameters:
+      docker-image:
+        type: string
+      run-lint:
+        type: boolean
+        default: true
+      with-modules:
+        type: boolean
+        default: true
+      work-dir:
+        type: string
+        default: /project
 
     docker:
-      - image: circleci/golang:1.9
+      - image: <<parameters.docker-image>>
         environment:
           CIRCLE_TEST_REPORTS: /tmp/circle-reports
-          COMMON_GO_PACKAGES: >
-            github.com/jstemmer/go-junit-report
+
+    working_directory: <<parameters.work-dir>>
 
     steps:
       - checkout
-      - run: go get -u $COMMON_GO_PACKAGES
 
-      - run: |
-          mkdir -p $CIRCLE_TEST_REPORTS
-          trap "go-junit-report < output.txt > $CIRCLE_TEST_REPORTS/junit.xml" EXIT
-          make test | tee output.txt
+      - run:
+          name: install go-junit-report
+          command: go get -u github.com/jstemmer/go-junit-report
 
-      - run: make lint
+      - unless:
+          condition: <<parameters.with-modules>>
+          steps:
+            - run: get dependencies
+            - command: go get -t .
+
+      - run:
+          name: build and test
+          command: |
+            mkdir -p $CIRCLE_TEST_REPORTS
+            trap "go-junit-report < output.txt > $CIRCLE_TEST_REPORTS/junit.xml" EXIT
+            make test | tee output.txt
+
+      - when:
+          condition: <<parameters.run-lint>>
+          steps:
+            - run: make lint
       
       - store_test_results:
           path: /tmp/circle-reports
-
-workflows:
-  version: 2
-  test:
-    jobs:
-      - go-test
