@@ -40,7 +40,7 @@ linters:
     - whitespace
   fast: false
 
-linter-settings:
+linters-settings:
   gofmt:
     simplify: false
 
