@@ -13,7 +13,7 @@ type publication struct {
 	retry           int64
 }
 
-//nolint: golint  // should be ID; retained for backward compatibility
+//nolint:golint,stylecheck // should be ID; retained for backward compatibility
 func (s *publication) Id() string    { return s.id }
 func (s *publication) Event() string { return s.event }
 func (s *publication) Data() string  { return s.data }

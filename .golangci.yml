@@ -32,6 +32,7 @@ linters:
     - prealloc
     - staticcheck
     - structcheck
+    - stylecheck
     - typecheck
     - unconvert
     - unparam
@@ -43,7 +44,9 @@ linters:
 linters-settings:
   gofmt:
     simplify: false
-
+  goimports:
+    local-prefixes: gopkg.in/launchdarkly,github.com/launchdarkly
+  
 issues:
   exclude-use-default: false
   max-same-issues: 1000
