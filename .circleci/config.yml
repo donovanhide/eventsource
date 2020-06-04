@@ -38,8 +38,6 @@ workflows:
           with-modules: false
           work-dir: /go/src/github.com/launchdarkly/eventsource
 
-version: 2
-
 jobs:
   go-test:
     parameters:
