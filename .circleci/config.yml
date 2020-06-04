@@ -70,8 +70,9 @@ jobs:
       - unless:
           condition: <<parameters.with-modules>>
           steps:
-            - run: get dependencies
-            - command: go get -t .
+            - run:
+                name: get dependencies
+                command: go get -t .
 
       - run:
           name: build and test
