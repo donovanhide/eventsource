@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	encFields = []struct {
+	encFields = []struct { //nolint:gochecknoglobals // non-exported global that we treat as a constant
 		prefix string
 		value  func(Event) string
 	}{
