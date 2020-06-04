@@ -168,7 +168,6 @@ func (srv *Server) run() {
 						srv.unregister <- s
 						close(s.out)
 					}
-
 				}
 			}
 		case sub := <-srv.subs:
