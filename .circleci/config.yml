@@ -51,7 +51,7 @@ jobs:
         default: true
       work-dir:
         type: string
-        default: /project
+        default: ~/project
 
     docker:
       - image: <<parameters.docker-image>>
