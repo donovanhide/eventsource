@@ -3,9 +3,41 @@ run:
   tests: false
 
 linters:
-  enable-all: true
-  disable:
-  - maligned
+  enable:
+    - bodyclose
+    - deadcode
+    - depguard
+    - dupl
+    - errcheck
+    - goconst
+    - gochecknoglobals
+    - gochecknoinits
+    - goconst
+    - gocritic
+    - gocyclo
+    - godox
+    - gofmt
+    - goimports
+    - golint
+    - gosec
+    - gosimple
+    - govet
+    - ineffassign
+    - interfacer
+    - lll
+    - megacheck
+    - misspell
+    - nakedret
+    - nolintlint
+    - prealloc
+    - staticcheck
+    - structcheck
+    - typecheck
+    - unconvert
+    - unparam
+    - unused
+    - varcheck
+    - whitespace
   fast: false
 
 linter-settings:

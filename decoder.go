@@ -115,7 +115,6 @@ ReadLoop:
 			case "id":
 				pub.id = value
 			case "retry":
-				//nolint:gosec
 				pub.retry, _ = strconv.ParseInt(value, 10, 64)
 			}
 		case err := <-dec.errorCh:

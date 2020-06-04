@@ -248,9 +248,7 @@ func (stream *Stream) connect() (io.ReadCloser, error) {
 	}
 	stream.connections++
 	if resp.StatusCode != 200 {
-		//nolint: gosec
 		message, _ := ioutil.ReadAll(resp.Body)
-		//nolint: gosec
 		_ = resp.Body.Close()
 		err = SubscriptionError{
 			Code:    resp.StatusCode,
@@ -312,7 +310,7 @@ NewStream:
 
 		discardCurrentStream := func() {
 			if r != nil {
-				_ = r.Close() //nolint: gosec
+				_ = r.Close()
 				r = nil
 				// allow the decoding goroutine to terminate
 				for range errs {
