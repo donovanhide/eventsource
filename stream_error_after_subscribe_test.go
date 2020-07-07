@@ -6,20 +6,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/go-test-helpers/httphelpers"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 )
 
 func TestStreamErrorsAreSentToErrorsChannel(t *testing.T) {
-	streamHandler, _, closer := closeableStreamHandler()
-	httpServer := httptest.NewServer(streamHandler)
+	handler, streamControl := httphelpers.SSEHandler(nil)
+	defer streamControl.Close()
+	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
-	defer close(closer)
 
 	stream := mustSubscribe(t, httpServer.URL)
 	defer stream.Close()
 
-	closer <- struct{}{}
+	streamControl.EndAll()
 
 	select {
 	case err := <-stream.Errors:
@@ -30,13 +31,13 @@ func TestStreamErrorsAreSentToErrorsChannel(t *testing.T) {
 }
 
 func TestStreamCanUseErrorHandlerInsteadOfChannelForErrorOnExistingConnection(t *testing.T) {
-	streamHandler1, _, closer1 := closeableStreamHandler()
-	streamHandler2, _, closer2 := closeableStreamHandler()
+	streamHandler1, streamControl1 := httphelpers.SSEHandler(nil)
+	defer streamControl1.Close()
+	streamHandler2, streamControl2 := httphelpers.SSEHandler(nil)
+	defer streamControl2.Close()
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.SequentialHandler(streamHandler1, streamHandler2))
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
-	defer close(closer1)
-	defer close(closer2)
 
 	myErrChannel := make(chan error)
 	defer close(myErrChannel)
@@ -51,7 +52,7 @@ func TestStreamCanUseErrorHandlerInsteadOfChannelForErrorOnExistingConnection(t 
 	assert.Nil(t, stream.Errors)
 	<-requestsCh
 
-	closer1 <- struct{}{}
+	streamControl1.Close()
 
 	select {
 	case err := <-myErrChannel:
@@ -69,13 +70,13 @@ func TestStreamCanUseErrorHandlerInsteadOfChannelForErrorOnExistingConnection(t 
 }
 
 func TestStreamErrorHandlerCanPreventRetryOnExistingConnection(t *testing.T) {
-	streamHandler1, _, closer1 := closeableStreamHandler()
-	streamHandler2, _, closer2 := closeableStreamHandler()
+	streamHandler1, streamControl1 := httphelpers.SSEHandler(nil)
+	defer streamControl1.Close()
+	streamHandler2, streamControl2 := httphelpers.SSEHandler(nil)
+	defer streamControl2.Close()
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.SequentialHandler(streamHandler1, streamHandler2))
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
-	defer close(closer1)
-	defer close(closer2)
 
 	myErrChannel := make(chan error)
 	defer close(myErrChannel)
@@ -90,7 +91,7 @@ func TestStreamErrorHandlerCanPreventRetryOnExistingConnection(t *testing.T) {
 	assert.Nil(t, stream.Errors)
 	<-requestsCh
 
-	closer1 <- struct{}{}
+	streamControl1.Close()
 
 	select {
 	case err := <-myErrChannel:

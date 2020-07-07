@@ -1,13 +1,17 @@
 package eventsource
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"testing"
 	"time"
 )
+
+// Test implementation note: to test our client logic, we deliberately do *not* use the SSE
+// server implementation in this package, but rather the simpler one from httphelpers, which
+// is validated with its own tests. That way if there's something wrong with our server
+// implementation, it will show up in just the server tests and not the client tests.
 
 const (
 	timeToWaitForEvent = 100 * time.Millisecond
@@ -16,42 +20,25 @@ const (
 func mustSubscribe(t *testing.T, url string, options ...StreamOption) *Stream {
 	logger := log.New(os.Stderr, "", log.LstdFlags)
 	allOpts := append(options, StreamOptionLogger(logger))
-	stream, err := SubscribeWithURL(url, allOpts...)
-	if err != nil {
-		t.Fatalf("Failed to subscribe: %s", err)
-	}
-	return stream
-}
-
-func closeableStreamHandler() (http.Handler, chan<- Event, chan<- struct{}) {
-	eventsCh := make(chan Event, 10)
-	closerCh := make(chan struct{}, 10)
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Add("Content-Type", "text/event-stream")
-		w.Header().Add("Transfer-Encoding", "chunked")
-		w.WriteHeader(200)
-		w.(http.Flusher).Flush()
-		enc := NewEncoder(w, false)
-		for {
-			select {
-			case e := <-eventsCh:
-				if e == nil {
-					enc.Encode(comment{""})
-				} else {
-					if p, ok := e.(*publication); ok {
-						if p.Retry() > 0 { // Encoder doesn't support the retry: attribute
-							w.Write([]byte(fmt.Sprintf("retry:%d\n", p.Retry())))
-						}
-					}
-					enc.Encode(e)
-				}
-				w.(http.Flusher).Flush()
-			case <-closerCh:
-				return
-			}
+	resultCh := make(chan *Stream, 1)
+	errorCh := make(chan error, 1)
+	go func() {
+		stream, err := SubscribeWithURL(url, allOpts...)
+		if err != nil {
+			errorCh <- err
+		} else {
+			resultCh <- stream
 		}
-	})
-	return handler, eventsCh, closerCh
+	}()
+	select {
+	case stream := <-resultCh:
+		return stream
+	case err := <-errorCh:
+		t.Fatalf("Failed to subscribe: %s", err)
+	case <-time.After(time.Second * 2):
+		t.Fatalf("Timed out trying to subscribe to stream")
+	}
+	return nil
 }
 
 type urlSuffixingRoundTripper struct {

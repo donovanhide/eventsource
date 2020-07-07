@@ -5,6 +5,9 @@ LINTER_VERSION_FILE=./bin/.golangci-lint-version-$(GOLANGCI_LINT_VERSION)
 
 SHELL=/bin/bash
 
+build:
+	go build ./...
+
 test:
 	go test -race -v ./...
 
@@ -16,4 +19,4 @@ $(LINTER_VERSION_FILE):
 lint: $(LINTER_VERSION_FILE)
 	$(LINTER) run ./...
 
-.PHONY: lint test
+.PHONY: build lint test

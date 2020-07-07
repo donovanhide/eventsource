@@ -7,16 +7,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/go-test-helpers/httphelpers"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 )
 
 func TestStreamCanUseCustomClient(t *testing.T) {
-	streamHandler, _, closer := closeableStreamHandler()
+	streamHandler, streamControl := httphelpers.SSEHandler(nil)
+	defer streamControl.Close()
 	handler, requestsCh := httphelpers.RecordingHandler(streamHandler)
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
-	defer close(closer)
 
 	client := *http.DefaultClient
 	client.Transport = urlSuffixingRoundTripper{http.DefaultTransport, "path"}
@@ -29,12 +30,12 @@ func TestStreamCanUseCustomClient(t *testing.T) {
 }
 
 func TestStreamSendsLastEventID(t *testing.T) {
-	streamHandler, _, closer := closeableStreamHandler()
+	streamHandler, streamControl := httphelpers.SSEHandler(nil)
+	defer streamControl.Close()
 	handler, requestsCh := httphelpers.RecordingHandler(streamHandler)
 
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
-	defer close(closer)
 
 	lastID := "xyz"
 	stream := mustSubscribe(t, httpServer.URL, StreamOptionLastEventID(lastID))
@@ -47,12 +48,12 @@ func TestStreamSendsLastEventID(t *testing.T) {
 func TestStreamReconnectWithRequestBodySendsBodyTwice(t *testing.T) {
 	body := []byte("my-body")
 
-	streamHandler, _, closer := closeableStreamHandler()
+	streamHandler, streamControl := httphelpers.SSEHandler(nil)
+	defer streamControl.Close()
 	handler, requestsCh := httphelpers.RecordingHandler(streamHandler)
 
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
-	defer close(closer)
 
 	req, _ := http.NewRequest("REPORT", httpServer.URL, bytes.NewBuffer(body))
 	if req.GetBody == nil {
@@ -69,7 +70,7 @@ func TestStreamReconnectWithRequestBodySendsBodyTwice(t *testing.T) {
 	r0 := <-requestsCh
 
 	// Allow the stream to reconnect once; get the second request
-	closer <- struct{}{}
+	streamControl.EndAll()
 	<-stream.Errors // Accept the error to unblock the retry handler
 	r1 := <-requestsCh
 

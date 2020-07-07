@@ -6,36 +6,34 @@ workflows:
       - go-test:
           name: Go 1.14
           docker-image: circleci/golang:1.14
+          run-lint: true
       - go-test:
           name: Go 1.13
           docker-image: circleci/golang:1.13
       - go-test:
           name: Go 1.12
           docker-image: circleci/golang:1.12
-          with-modules: false
+          old-version: true
           work-dir: /go/src/github.com/launchdarkly/eventsource
       - go-test:
           name: Go 1.11
           docker-image: circleci/golang:1.11
-          with-modules: false
+          old-version: true
           work-dir: /go/src/github.com/launchdarkly/eventsource
       - go-test:
           name: Go 1.10
           docker-image: circleci/golang:1.10
-          run-lint: false # the version of golangci-lint we're using doesn't work with older Go versions
-          with-modules: false
+          old-version: true
           work-dir: /go/src/github.com/launchdarkly/eventsource
       - go-test:
           name: Go 1.9
           docker-image: circleci/golang:1.9
-          run-lint: false # the version of golangci-lint we're using doesn't work with older Go versions
-          with-modules: false
+          old-version: true
           work-dir: /go/src/github.com/launchdarkly/eventsource
       - go-test:
           name: Go 1.8
           docker-image: circleci/golang:1.8
-          run-lint: false # the version of golangci-lint we're using doesn't work with older Go versions
-          with-modules: false
+          old-version: true
           work-dir: /go/src/github.com/launchdarkly/eventsource
 
 jobs:
@@ -45,14 +43,14 @@ jobs:
         type: string
       run-lint:
         type: boolean
-        default: true
-      with-modules:
+        default: false
+      old-version:
         type: boolean
-        default: true
+        default: false
       work-dir:
         type: string
         default: ~/project
-
+  
     docker:
       - image: <<parameters.docker-image>>
         environment:
@@ -68,23 +66,28 @@ jobs:
           command: go get -u github.com/jstemmer/go-junit-report
 
       - unless:
-          condition: <<parameters.with-modules>>
+          condition: <<parameters.old-version>>
           steps:
             - run:
-                name: get dependencies
-                command: go get -t .
-
-      - run:
-          name: build and test
-          command: |
-            mkdir -p $CIRCLE_TEST_REPORTS
-            trap "go-junit-report < output.txt > $CIRCLE_TEST_REPORTS/junit.xml" EXIT
-            make test | tee output.txt
-
+                name: build and test
+                command: make test | tee output.txt
+            - run:
+                name: process test results
+                command: |
+                  mkdir -p $CIRCLE_TEST_REPORTS
+                  go-junit-report < output.txt > $CIRCLE_TEST_REPORTS/junit.xml
+                when: always
+            - store_test_results:
+                path: /tmp/circle-reports
+      
+      - when:
+          condition: <<parameters.old-version>>
+          steps:
+            - run:
+                name: build only (no test in old Go versions)
+                command: make
+      
       - when:
           condition: <<parameters.run-lint>>
           steps:
             - run: make lint
-      
-      - store_test_results:
-          path: /tmp/circle-reports

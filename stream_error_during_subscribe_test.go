@@ -1,19 +1,19 @@
 package eventsource
 
 import (
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/launchdarkly/go-test-helpers/httphelpers"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/launchdarkly/go-test-helpers/v2/httphelpers"
 )
 
 func handlerCausingNetworkError() http.Handler {
-	return httphelpers.PanicHandler(errors.New("sorry")) // panic in httptest.Server causes connection to be broken
+	return httphelpers.BrokenConnectionHandler()
 }
 
 func handlerCausingHTTPError(status int) http.Handler {
@@ -43,11 +43,11 @@ func TestStreamDoesNotRetryInitialConnectionByDefaultAfterHTTPError(t *testing.T
 }
 
 func testStreamDoesNotRetryInitialConnectionByDefault(t *testing.T, errorHandler http.Handler, checkError func(error)) {
-	streamHandler, _, closer := closeableStreamHandler()
+	streamHandler, streamControl := httphelpers.SSEHandler(nil)
+	defer streamControl.Close()
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.SequentialHandler(errorHandler, streamHandler))
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
-	defer close(closer)
 
 	stream, err := SubscribeWithURL(httpServer.URL)
 	defer func() {
@@ -62,14 +62,14 @@ func testStreamDoesNotRetryInitialConnectionByDefault(t *testing.T, errorHandler
 }
 
 func TestStreamCanRetryInitialConnection(t *testing.T) {
-	streamHandler, _, closer := closeableStreamHandler()
+	streamHandler, streamControl := httphelpers.SSEHandler(nil)
+	defer streamControl.Close()
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.SequentialHandler(
 		handlerCausingNetworkError(),
 		handlerCausingNetworkError(),
 		streamHandler))
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
-	defer close(closer)
 
 	stream, err := SubscribeWithURL(httpServer.URL,
 		StreamOptionInitialRetry(time.Millisecond),
@@ -85,14 +85,14 @@ func TestStreamCanRetryInitialConnection(t *testing.T) {
 }
 
 func TestStreamCanRetryInitialConnectionWithIndefiniteTimeout(t *testing.T) {
-	streamHandler, _, closer := closeableStreamHandler()
+	streamHandler, streamControl := httphelpers.SSEHandler(nil)
+	defer streamControl.Close()
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.SequentialHandler(
 		handlerCausingNetworkError(),
 		handlerCausingNetworkError(),
 		streamHandler))
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
-	defer close(closer)
 
 	stream, err := SubscribeWithURL(httpServer.URL,
 		StreamOptionInitialRetry(time.Millisecond),
@@ -108,14 +108,14 @@ func TestStreamCanRetryInitialConnectionWithIndefiniteTimeout(t *testing.T) {
 }
 
 func TestStreamCanRetryInitialConnectionUntilFiniteTimeout(t *testing.T) {
-	streamHandler, _, closer := closeableStreamHandler()
+	streamHandler, streamControl := httphelpers.SSEHandler(nil)
+	defer streamControl.Close()
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.SequentialHandler(
 		handlerCausingNetworkError(),
 		handlerCausingNetworkError(),
 		streamHandler))
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
-	defer close(closer)
 
 	stream, err := SubscribeWithURL(httpServer.URL,
 		StreamOptionInitialRetry(100*time.Millisecond),
@@ -139,13 +139,13 @@ func TestStreamErrorHandlerCanAllowRetryOfInitialConnectionAfterHTTPError(t *tes
 }
 
 func testStreamErrorHandlerCanAllowRetryOfInitialConnection(t *testing.T, errorHandler http.Handler, checkError func(error)) {
-	streamHandler, _, closer := closeableStreamHandler()
+	streamHandler, streamControl := httphelpers.SSEHandler(nil)
+	defer streamControl.Close()
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.SequentialHandler(
 		errorHandler,
 		streamHandler))
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
-	defer close(closer)
 
 	myErrChannel := make(chan error, 1)
 
@@ -171,13 +171,13 @@ func testStreamErrorHandlerCanAllowRetryOfInitialConnection(t *testing.T, errorH
 }
 
 func TestStreamErrorHandlerCanPreventRetryOfInitialConnection(t *testing.T) {
-	streamHandler, _, closer := closeableStreamHandler()
+	streamHandler, streamControl := httphelpers.SSEHandler(nil)
+	defer streamControl.Close()
 	handler, requestsCh := httphelpers.RecordingHandler(httphelpers.SequentialHandler(
 		handlerCausingNetworkError(),
 		streamHandler))
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
-	defer close(closer)
 
 	stream, err := SubscribeWithURL(httpServer.URL,
 		StreamOptionInitialRetry(100*time.Millisecond),
