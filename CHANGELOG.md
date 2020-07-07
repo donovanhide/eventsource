@@ -2,6 +2,10 @@
 
 All notable changes to the project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [1.4.3] - 2020-07-07
+### Changed:
+- The only changes in this release are to the test dependencies, to avoid bringing in unnecessary transitive dependencies such as `go-sdk-common`. Some of the test dependencies are now modules that can only be used in Go 1.13&#43;, which means that the test build for this project only runs in Go 1.13&#43;, but it can still be imported by projects that use older Go versions.
+
 ## [1.4.2] - 2020-06-04
 ### Added:
 - Added `go.mod` so this package can be consumed as a module. This does not affect code that is currently consuming it via `go get`, `dep`, or `govendor`.
