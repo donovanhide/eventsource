@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 type subscription struct {
@@ -31,11 +32,12 @@ type comment struct {
 // Server manages any number of event-publishing channels and allows subscribers to consume them.
 // To use it within an HTTP server, create a handler for each channel with Handler().
 type Server struct {
-	AllowCORS     bool   // Enable all handlers to be accessible from any origin
-	ReplayAll     bool   // Replay repository even if there's no Last-Event-Id specified
-	BufferSize    int    // How many messages do we let the client get behind before disconnecting
-	Gzip          bool   // Enable compression if client can accept it
-	Logger        Logger // Logger is a logger that, when set, will be used for logging debug messages
+	AllowCORS     bool          // Enable all handlers to be accessible from any origin
+	ReplayAll     bool          // Replay repository even if there's no Last-Event-Id specified
+	BufferSize    int           // How many messages do we let the client get behind before disconnecting
+	Gzip          bool          // Enable compression if client can accept it
+	MaxConnTime   time.Duration // If non-zero, HTTP connections will be automatically closed after this time
+	Logger        Logger        // Logger is a logger that, when set, will be used for logging debug messages
 	registrations chan *registration
 	pub           chan *outbound
 	subs          chan *subscription
@@ -87,6 +89,13 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 			return
 		}
 
+		var maxConnTimeCh <-chan time.Time
+		if srv.MaxConnTime > 0 {
+			t := time.NewTimer(srv.MaxConnTime)
+			defer t.Stop()
+			maxConnTimeCh = t.C
+		}
+
 		sub := &subscription{
 			channel:     channel,
 			lastEventID: req.Header.Get("Last-Event-ID"),
@@ -102,6 +111,9 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 			select {
 			case <-notifier.CloseNotify():
 				srv.unregister <- sub
+				return
+			case <-maxConnTimeCh: // if MaxConnTime was not set, this is a nil channel and has no effect on the select
+				srv.unregister <- sub // we treat this the same as if the client closed the connection
 				return
 			case ev, ok := <-sub.out:
 				if !ok {

@@ -1,10 +1,14 @@
 package eventsource
 
 import (
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewServerHandlerRespondsAfterClose(t *testing.T) {
@@ -30,5 +34,53 @@ func TestNewServerHandlerRespondsAfterClose(t *testing.T) {
 		}
 	case <-time.After(250 * time.Millisecond):
 		t.Errorf("Did not receive response in time")
+	}
+}
+
+func TestServerHandlerHasNoMaxConnectionTimeByDefault(t *testing.T) {
+	server := NewServer()
+	defer server.Close()
+	httpServer := httptest.NewServer(server.Handler("test"))
+	defer httpServer.Close()
+
+	resp, err := http.Get(httpServer.URL)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	readCh := make(chan []byte)
+	go func() {
+		bytes, _ := ioutil.ReadAll(resp.Body)
+		readCh <- bytes
+	}()
+	select {
+	case <-readCh:
+		assert.Fail(t, "Unexpectedly got end of response")
+	case <-time.After(time.Millisecond * 400):
+		break
+	}
+}
+
+func TestServerHandlerCanEnforceMaxConnectionTime(t *testing.T) {
+	server := NewServer()
+	server.MaxConnTime = time.Millisecond * 200
+	defer server.Close()
+	httpServer := httptest.NewServer(server.Handler("test"))
+	defer httpServer.Close()
+
+	startTime := time.Now()
+	resp, err := http.Get(httpServer.URL)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	readCh := make(chan []byte)
+	go func() {
+		bytes, _ := ioutil.ReadAll(resp.Body)
+		readCh <- bytes
+	}()
+	select {
+	case <-readCh:
+		assert.GreaterOrEqual(t, time.Now().Sub(startTime).Milliseconds(), int64(200))
+	case <-time.After(time.Millisecond * 400):
+		assert.Fail(t, "Timed out without response being closed")
 	}
 }
