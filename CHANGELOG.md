@@ -2,6 +2,10 @@
 
 All notable changes to the project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [1.5.0] - 2020-07-15
+### Added:
+- `Server.MaxConnTime` is an optional setting to make the `Server` automatically close any stream connection that has stayed open for at least that amount of time. This may be useful in preventing server instances from accumulating too many connections in a load-balanced environment.
+
 ## [1.4.3] - 2020-07-07
 ### Changed:
 - The only changes in this release are to the test dependencies, to avoid bringing in unnecessary transitive dependencies such as `go-sdk-common`. Some of the test dependencies are now modules that can only be used in Go 1.13&#43;, which means that the test build for this project only runs in Go 1.13&#43;, but it can still be imported by projects that use older Go versions.
