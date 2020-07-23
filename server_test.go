@@ -1,6 +1,7 @@
 package eventsource
 
 import (
+	"context"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -271,5 +272,45 @@ func TestServerHandlerCanEnforceMaxConnectionTime(t *testing.T) {
 		assert.GreaterOrEqual(t, time.Now().Sub(startTime).Milliseconds(), int64(200))
 	case <-time.After(time.Millisecond * 400):
 		assert.Fail(t, "Timed out without response being closed")
+	}
+}
+
+func TestServerHandlerExitsIfClientClosesConnection(t *testing.T) {
+	server := NewServer()
+	defer server.Close()
+
+	serverHandler := server.Handler("test")
+	startedCh := make(chan struct{}, 1)
+	endedCh := make(chan struct{}, 1)
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		startedCh <- struct{}{}
+		serverHandler.ServeHTTP(w, req)
+		endedCh <- struct{}{}
+	})
+
+	httpServer := httptest.NewServer(testHandler)
+	defer httpServer.Close()
+
+	req, err := http.NewRequest("GET", httpServer.URL, nil)
+	require.NoError(t, err)
+	ctx, canceller := context.WithCancel(context.Background())
+	resp, err := http.DefaultClient.Do(req.WithContext(ctx))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	select {
+	case <-startedCh: // handler has received the request and is blocking for events
+		break
+	case <-time.After(time.Second):
+		require.Fail(t, "timed out waiting for handler to start")
+	}
+
+	canceller() // causes the socket to be closed
+
+	select {
+	case <-endedCh:
+		break
+	case <-time.After(time.Second):
+		require.Fail(t, "timed out waiting for handler to end")
 	}
 }

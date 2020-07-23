@@ -120,8 +120,6 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 		}
 		srv.subs <- sub
 		flusher := w.(http.Flusher)
-		//nolint: megacheck  // http.CloseNotifier is deprecated, but currently we are retaining compatibility with Go 1.7
-		notifier := w.(http.CloseNotifier)
 		flusher.Flush()
 		enc := NewEncoder(w, useGzip)
 
@@ -157,11 +155,12 @@ func (srv *Server) Handler(channel string) http.HandlerFunc {
 		var readMainCh <-chan eventOrComment = eventCh
 		var readBatchCh <-chan Event
 		closedNormally := false
+		closeNotify := req.Context().Done()
 
 	ReadLoop:
 		for {
 			select {
-			case <-notifier.CloseNotify():
+			case <-closeNotify:
 				break ReadLoop
 			case <-maxConnTimeCh: // if MaxConnTime was not set, this is a nil channel and has no effect on the select
 				break ReadLoop
