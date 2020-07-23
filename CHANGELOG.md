@@ -2,6 +2,10 @@
 
 All notable changes to the project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [1.6.1] - 2020-07-23
+### Changed:
+- `Server.Handler()` now uses the standard `context.Context` mechanism to detect when a request has been cancelled, instead of the deprecated `http.CloseNotifier`.
+
 ## [1.6.0] - 2020-07-23
 ### Added:
 - `Server.Unregister` method for removing a `Repository` registration and optionally forcing clients to disconnect.
