@@ -22,6 +22,12 @@ type Event interface {
 type Repository interface {
 	// Gets the Events which should follow on from the specified channel and event id. This method may be called
 	// from different goroutines, so it must be safe for concurrent access.
+	//
+	// It is important for the Repository to close the channel after all the necessary events have been
+	// written to it. The stream will not be able to proceed to any new events until it has finished consuming
+	// the channel that was returned by Replay.
+	//
+	// Replay may return nil if there are no events to be sent.
 	Replay(channel, id string) chan Event
 }
 
