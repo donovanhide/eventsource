@@ -2,6 +2,15 @@
 
 All notable changes to the project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [1.6.0] - 2020-07-23
+### Added:
+- `Server.Unregister` method for removing a `Repository` registration and optionally forcing clients to disconnect.
+- `Server.PublishWithAcknowledgement` method for ensuring that an action does not happen until an event has been dispatched.
+
+### Fixed:
+- Fixed a race condition in which `Server` might close a channel while another goroutine is trying to write to it. This would happen if you registered a `Repository` that replays events, started a handler, then closed the `Server` while the events were still replaying.
+- Improved unit test coverage.
+
 ## [1.5.0] - 2020-07-15
 ### Added:
 - `Server.MaxConnTime` is an optional setting to make the `Server` automatically close any stream connection that has stayed open for at least that amount of time. This may be useful in preventing server instances from accumulating too many connections in a load-balanced environment.
