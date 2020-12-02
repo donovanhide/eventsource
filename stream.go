@@ -266,7 +266,7 @@ func (stream *Stream) stream(r io.ReadCloser) {
 		logger := stream.getLogger()
 		delay := stream.retryDelay.NextRetryDelay(time.Now())
 		if logger != nil {
-			logger.Printf("Reconnecting in %0.4f secs\n", delay.Seconds())
+			logger.Printf("Reconnecting in %0.4f secs", delay.Seconds())
 		}
 		time.AfterFunc(delay, func() {
 			retryChan <- struct{}{}
