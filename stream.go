@@ -1,6 +1,7 @@
 package eventsource
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -32,6 +33,11 @@ type Stream struct {
 	isClosed bool
 	// isClosedMutex is a mutex protecting concurrent read/write access of isClosed
 	isClosedMutex sync.RWMutex
+	// streamWaitGroup drops to 0 when all the goroutines that process
+	// events have ended.
+	streamWaitGroup sync.WaitGroup
+	// cancelRequest cancels the context on the outbound request.
+	cancelRequest func()
 }
 
 type SubscriptionError struct {
@@ -62,13 +68,17 @@ func SubscribeWithRequest(lastEventId string, request *http.Request) (*Stream, e
 // SubscribeWith takes a http client and request providing customization over both headers and
 // control over the http client settings (timeouts, tls, etc)
 func SubscribeWith(lastEventId string, client *http.Client, request *http.Request) (*Stream, error) {
+	ctx, cancelRequest := context.WithCancel(request.Context())
+	request = request.WithContext(ctx)
+
 	stream := &Stream{
-		c:           client,
-		req:         request,
-		lastEventId: lastEventId,
-		retry:       time.Millisecond * 3000,
-		Events:      make(chan Event),
-		Errors:      make(chan error),
+		c:             client,
+		req:           request,
+		cancelRequest: cancelRequest,
+		lastEventId:   lastEventId,
+		retry:         time.Millisecond * 3000,
+		Events:        make(chan Event),
+		Errors:        make(chan error),
 	}
 	stream.c.CheckRedirect = checkRedirect
 
@@ -76,7 +86,7 @@ func SubscribeWith(lastEventId string, client *http.Client, request *http.Reques
 	if err != nil {
 		return nil, err
 	}
-	go stream.stream(r)
+	stream.stream(r)
 	return stream, nil
 }
 
@@ -87,6 +97,13 @@ func (stream *Stream) Close() {
 	}
 
 	stream.markStreamClosed()
+
+	// Cancel the request and wait for the goroutine that processes the
+	// response to end. This ensures that nothing further will be written
+	// to the output channels.
+	stream.cancelRequest()
+	stream.streamWaitGroup.Wait()
+
 	close(stream.Errors)
 	close(stream.Events)
 }
@@ -139,13 +156,23 @@ func (stream *Stream) connect() (r io.ReadCloser, err error) {
 }
 
 func (stream *Stream) stream(r io.ReadCloser) {
-	defer r.Close()
+	stream.streamWaitGroup.Add(1)
 
-	// receives events until an error is encountered
-	stream.receiveEvents(r)
+	go func() {
+		defer stream.streamWaitGroup.Done()
+		defer r.Close()
 
-	// tries to reconnect and start the stream again
-	stream.retryRestartStream()
+		// receives events until an error is encountered
+		stream.receiveEvents(r)
+
+		// If the stream was closed, don't attempt to reconnect.
+		if stream.isStreamClosed() {
+			return
+		}
+
+		// tries to reconnect and start the stream again
+		stream.retryRestartStream()
+	}()
 }
 
 func (stream *Stream) receiveEvents(r io.ReadCloser) {
@@ -187,7 +214,7 @@ func (stream *Stream) retryRestartStream() {
 		// but something to be aware of.
 		r, err := stream.connect()
 		if err == nil {
-			go stream.stream(r)
+			stream.stream(r)
 			return
 		}
 		stream.Errors <- err
