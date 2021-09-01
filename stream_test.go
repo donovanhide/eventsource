@@ -1,7 +1,9 @@
 package eventsource
 
 import (
+	"bytes"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"testing"
@@ -13,23 +15,60 @@ const (
 	timeToWaitForEvent = 100 * time.Millisecond
 )
 
+type testStream struct {
+	bytes.Buffer
+}
+
+func (ts testStream) Close() error {
+	return nil
+}
+
 func TestStreamSubscribeEventsChan(t *testing.T) {
-	server := NewServer()
-	httpServer := httptest.NewServer(server.Handler(eventChannelName))
-	// The server has to be closed before the httpServer is closed.
-	// Otherwise the httpServer has still an open connection and it can not close.
-	defer httpServer.Close()
-	defer server.Close()
+	buff := &testStream{}
+	stream, err := subscribe("", func(lastEvtID string) (io.ReadCloser, error) {
+		return buff, nil
+	})
+	if err != nil {
+		t.Fatalf("Could not create event stream: %s", err)
+	}
 
-	stream := mustSubscribe(t, httpServer.URL, "")
-
-	publishedEvent := &publication{id: "123"}
-	server.Publish([]string{eventChannelName}, publishedEvent)
+	expectedEvent := &publication{id: "123"}
+	buff.WriteString("" +
+		"id: 123\n" +
+		"data:\n" +
+		"\n",
+	)
 
 	select {
 	case receivedEvent := <-stream.Events:
-		if !reflect.DeepEqual(receivedEvent, publishedEvent) {
-			t.Errorf("got event %+v, want %+v", receivedEvent, publishedEvent)
+		if !reflect.DeepEqual(receivedEvent, expectedEvent) {
+			t.Errorf("got event %+v, want %+v", receivedEvent, expectedEvent)
+		}
+	case <-time.After(timeToWaitForEvent):
+		t.Error("Timed out waiting for event")
+	}
+}
+
+func TestStreamSubscribeEventsChanHTTP(t *testing.T) {
+	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Write the same event to the stream for every request
+		w.Write([]byte("" +
+			"id: 123\n" +
+			"data:\n" +
+			"\n",
+		))
+	}))
+	defer httpServer.Close()
+
+	stream := mustSubscribe(t, httpServer.URL, "")
+	defer stream.Close()
+
+	expectedEvent := &publication{id: "123"}
+
+	select {
+	case receivedEvent := <-stream.Events:
+		if !reflect.DeepEqual(receivedEvent, expectedEvent) {
+			t.Errorf("got event %+v, want %+v", receivedEvent, expectedEvent)
 		}
 	case <-time.After(timeToWaitForEvent):
 		t.Error("Timed out waiting for event")
