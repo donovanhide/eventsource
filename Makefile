@@ -19,4 +19,22 @@ $(LINTER_VERSION_FILE):
 lint: $(LINTER_VERSION_FILE)
 	$(LINTER) run ./...
 
-.PHONY: build lint test
+TEMP_TEST_OUTPUT=/tmp/sse-contract-test-service.log
+
+build-contract-tests:
+	@cd contract-tests && go mod tidy && go build
+
+start-contract-test-service:
+	@./contract-tests/contract-tests
+
+start-contract-test-service-bg:
+	@echo "Test service output will be captured in $(TEMP_TEST_OUTPUT)"
+	@make start-contract-test-service >$(TEMP_TEST_OUTPUT) 2>&1 &
+
+run-contract-tests:
+	@curl -s https://raw.githubusercontent.com/launchdarkly/sse-contract-tests/v1.0.0/downloader/run.sh \
+      | VERSION=v1 PARAMS="-url http://localhost:8000 -debug -stop-service-at-end" sh
+
+contract-tests: build-contract-tests start-contract-test-service-bg run-contract-tests
+
+.PHONY: build lint test build-contract-tests start-contract-test-service run-contract-tests contract-tests

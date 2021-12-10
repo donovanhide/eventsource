@@ -4,37 +4,18 @@ workflows:
   workflow:
     jobs:
       - go-test:
-          name: Go 1.14
-          docker-image: circleci/golang:1.14
+          name: Go 1.17
+          docker-image: cimg/go:1.17
           run-lint: true
       - go-test:
-          name: Go 1.13
-          docker-image: circleci/golang:1.13
+          name: Go 1.16
+          docker-image: cimg/go:1.16
       - go-test:
-          name: Go 1.12
-          docker-image: circleci/golang:1.12
-          old-version: true
-          work-dir: /go/src/github.com/launchdarkly/eventsource
+          name: Go 1.15
+          docker-image: cimg/go:1.15
       - go-test:
-          name: Go 1.11
-          docker-image: circleci/golang:1.11
-          old-version: true
-          work-dir: /go/src/github.com/launchdarkly/eventsource
-      - go-test:
-          name: Go 1.10
-          docker-image: circleci/golang:1.10
-          old-version: true
-          work-dir: /go/src/github.com/launchdarkly/eventsource
-      - go-test:
-          name: Go 1.9
-          docker-image: circleci/golang:1.9
-          old-version: true
-          work-dir: /go/src/github.com/launchdarkly/eventsource
-      - go-test:
-          name: Go 1.8
-          docker-image: circleci/golang:1.8
-          old-version: true
-          work-dir: /go/src/github.com/launchdarkly/eventsource
+          name: Go 1.14
+          docker-image: cimg/go:1.14
 
 jobs:
   go-test:
@@ -44,19 +25,11 @@ jobs:
       run-lint:
         type: boolean
         default: false
-      old-version:
-        type: boolean
-        default: false
-      work-dir:
-        type: string
-        default: ~/project
   
     docker:
       - image: <<parameters.docker-image>>
         environment:
           CIRCLE_TEST_REPORTS: /tmp/circle-reports
-
-    working_directory: <<parameters.work-dir>>
 
     steps:
       - checkout
@@ -65,29 +38,25 @@ jobs:
           name: install go-junit-report
           command: go get -u github.com/jstemmer/go-junit-report
 
-      - unless:
-          condition: <<parameters.old-version>>
-          steps:
-            - run:
-                name: build and test
-                command: make test | tee output.txt
-            - run:
-                name: process test results
-                command: |
-                  mkdir -p $CIRCLE_TEST_REPORTS
-                  go-junit-report < output.txt > $CIRCLE_TEST_REPORTS/junit.xml
-                when: always
-            - store_test_results:
-                path: /tmp/circle-reports
-      
-      - when:
-          condition: <<parameters.old-version>>
-          steps:
-            - run:
-                name: build only (no test in old Go versions)
-                command: make
+      - run:
+          name: build and test
+          command: make test | tee output.txt
+      - run:
+          name: process test results
+          command: |
+            mkdir -p $CIRCLE_TEST_REPORTS
+            go-junit-report < output.txt > $CIRCLE_TEST_REPORTS/junit.xml
+          when: always
+      - store_test_results:
+          path: /tmp/circle-reports
       
       - when:
           condition: <<parameters.run-lint>>
           steps:
             - run: make lint
+
+      - run: make build-contract-tests
+      - run:
+          command: make start-contract-test-service
+          background: true
+      - run: make run-contract-tests
