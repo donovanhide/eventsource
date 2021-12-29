@@ -21,6 +21,15 @@ func TestDecode(t *testing.T) {
 			rawInput:     "\n\n\nevent: event1\n\n\n\n\nevent: event2\n\n",
 			wantedEvents: []*publication{{event: "event1"}, {event: "event2"}},
 		},
+		{
+			rawInput:     "id: abc\ndata: def\n\n",
+			wantedEvents: []*publication{{id: "abc", data: "def"}},
+		},
+		{
+			// id field should be ignored if it contains a null
+			rawInput:     "id: a\x00bc\ndata: def\n\n",
+			wantedEvents: []*publication{{data: "def"}},
+		},
 	}
 
 	for _, test := range tests {
