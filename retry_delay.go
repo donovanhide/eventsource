@@ -3,6 +3,7 @@ package eventsource
 import (
 	"math"
 	"math/rand"
+	"sync"
 	"time"
 )
 
@@ -26,6 +27,7 @@ type retryDelayStrategy struct {
 	resetInterval time.Duration
 	retryCount    int
 	goodSince     time.Time // nonzero only if the state is currently "good"
+	lock          sync.Mutex
 }
 
 // Abstraction for backoff delay behavior.
@@ -100,6 +102,9 @@ func newRetryDelayStrategy(
 // Note that currentTime is passed as a parameter instead of computed by this function to guarantee predictable
 // behavior in tests.
 func (r *retryDelayStrategy) NextRetryDelay(currentTime time.Time) time.Duration {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
 	if !r.goodSince.IsZero() && r.resetInterval > 0 && (currentTime.Sub(r.goodSince) >= r.resetInterval) {
 		r.retryCount = 0
 	}
@@ -117,7 +122,9 @@ func (r *retryDelayStrategy) NextRetryDelay(currentTime time.Time) time.Duration
 
 // SetGoodSince marks the current state as "good" and records the time. See comments on the backoff type.
 func (r *retryDelayStrategy) SetGoodSince(goodSince time.Time) {
+	r.lock.Lock()
 	r.goodSince = goodSince
+	r.lock.Unlock()
 }
 
 // SetBaseDelay changes the initial retry delay and resets the backoff (if any) so the next retry will use
@@ -127,8 +134,10 @@ func (r *retryDelayStrategy) SetGoodSince(goodSince time.Time) {
 // set the base retry to a specific value. Note that we will still apply a jitter, if jitter is enabled,
 // and subsequent retries will still increase exponentially.
 func (r *retryDelayStrategy) SetBaseDelay(baseDelay time.Duration) {
+	r.lock.Lock()
 	r.baseDelay = baseDelay
 	r.retryCount = 0
+	r.lock.Unlock()
 }
 
 func (r *retryDelayStrategy) hasJitter() bool { //nolint:megacheck // used only in tests
