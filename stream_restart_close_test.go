@@ -33,14 +33,14 @@ func TestStreamRestart(t *testing.T) {
 	eventIn1 := httphelpers.SSEEvent{ID: "123"}
 	streamControl1.Enqueue(eventIn1)
 	eventOut1 := <-stream.Events
-	assert.Equal(t, toPublication(eventIn1), eventOut1)
+	assert.Equal(t, "123", eventOut1.Id())
 
 	stream.Restart()
 
 	eventIn2 := httphelpers.SSEEvent{ID: "456"}
 	streamControl2.Enqueue(eventIn2)
 	eventOut2 := <-stream.Events // received an event from streamHandler2
-	assert.Equal(t, toPublication(eventIn2), eventOut2)
+	assert.Equal(t, "456", eventOut2.Id())
 
 	assert.Equal(t, 0, len(stream.Errors)) // restart is not reported as an error
 }

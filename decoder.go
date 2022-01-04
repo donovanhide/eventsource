@@ -9,8 +9,8 @@ import (
 )
 
 type publication struct {
-	id, event, data string
-	retry           int64
+	id, event, data, lastEventID string
+	retry                        int64
 }
 
 //nolint:golint,stylecheck // should be ID; retained for backward compatibility
@@ -19,11 +19,15 @@ func (s *publication) Event() string { return s.event }
 func (s *publication) Data() string  { return s.data }
 func (s *publication) Retry() int64  { return s.retry }
 
+// LastEventID is from a separate interface, EventWithLastID
+func (s *publication) LastEventID() string { return s.lastEventID }
+
 // A Decoder is capable of reading Events from a stream.
 type Decoder struct {
 	linesCh     <-chan string
 	errorCh     <-chan error
 	readTimeout time.Duration
+	lastEventID string
 }
 
 // DecoderOption is a common interface for optional configuration parameters that can be
@@ -38,11 +42,24 @@ func (o readTimeoutDecoderOption) apply(d *Decoder) {
 	d.readTimeout = time.Duration(o)
 }
 
+type lastEventIDDecoderOption string
+
+func (o lastEventIDDecoderOption) apply(d *Decoder) {
+	d.lastEventID = string(o)
+}
+
 // DecoderOptionReadTimeout returns an option that sets the read timeout interval for a
 // Decoder when the Decoder is created. If the Decoder does not receive new data within this
 // length of time, it will return an error. By default, there is no read timeout.
 func DecoderOptionReadTimeout(timeout time.Duration) DecoderOption {
 	return readTimeoutDecoderOption(timeout)
+}
+
+// DecoderOptionLastEventID returns an option that sets the last event ID property for a
+// Decoder when the Decoder is created. This allows the last ID to be included in new
+// events if they do not override it.
+func DecoderOptionLastEventID(lastEventID string) DecoderOption {
+	return lastEventIDDecoderOption(lastEventID)
 }
 
 // NewDecoder returns a new Decoder instance that reads events with the given io.Reader.
@@ -115,6 +132,7 @@ ReadLoop:
 			case "id":
 				if !strings.ContainsRune(value, 0) {
 					pub.id = value
+					dec.lastEventID = value
 				}
 			case "retry":
 				pub.retry, _ = strconv.ParseInt(value, 10, 64)
@@ -133,6 +151,7 @@ ReadLoop:
 		}
 	}
 	pub.data = strings.TrimSuffix(pub.data, "\n")
+	pub.lastEventID = dec.lastEventID
 	return pub, nil
 }
 

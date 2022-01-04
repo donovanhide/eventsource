@@ -73,6 +73,7 @@ func main() {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
 	})
+	fmt.Println("Listening on port 8000")
 	server := &http.Server{Handler: mux, Addr: ":8000"}
 	_ = server.ListenAndServe()
 }

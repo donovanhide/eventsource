@@ -292,7 +292,10 @@ NewStream:
 		errs := make(chan error)
 
 		if r != nil {
-			dec := NewDecoderWithOptions(r, DecoderOptionReadTimeout(stream.readTimeout))
+			dec := NewDecoderWithOptions(r,
+				DecoderOptionReadTimeout(stream.readTimeout),
+				DecoderOptionLastEventID(stream.lastEventID),
+			)
 			go func() {
 				for {
 					ev, err := dec.Decode()
@@ -338,9 +341,7 @@ NewStream:
 				if pub.Retry() > 0 {
 					stream.retryDelay.SetBaseDelay(time.Duration(pub.Retry()) * time.Millisecond)
 				}
-				if len(pub.Id()) > 0 {
-					stream.lastEventID = pub.Id()
-				}
+				stream.lastEventID = pub.lastEventID
 				stream.retryDelay.SetGoodSince(time.Now())
 				stream.Events <- ev
 			case <-stream.closer:

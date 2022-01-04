@@ -49,7 +49,7 @@ func TestStreamReconnectsIfConnectionIsBroken(t *testing.T) {
 			t.Error("Timed out waiting for event")
 			return
 		case receivedEvent := <-stream.Events:
-			assert.Equal(t, &publication{id: "123"}, receivedEvent)
+			assert.Equal(t, &publication{id: "123", lastEventID: "123"}, receivedEvent)
 			return
 		}
 	}

@@ -77,7 +77,11 @@ func newStreamEntity(opts streamOpts) *streamEntity {
 				evProps := jsonObject{
 					"type": ev.Event(),
 					"data": ev.Data(),
-					"id":   ev.Id(),
+					"id":   ev.(eventsource.EventWithLastID).LastEventID(),
+					// Note that the cast above will panic if the event does not implement EventWithLastID. Every
+					// event returned by the eventsource client *does* implement that interface - it is only a
+					// separate interface because, for backward compatibility, we could not add a method to Event.
+					// So if such a panic happened, it would correctly indicate that we broke something.
 				}
 				e.logger.Printf("Received event from stream (%s)", ev.Event())
 				e.sendMessage(jsonObject{"kind": "event", "event": evProps})

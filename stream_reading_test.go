@@ -23,7 +23,7 @@ func TestStreamSubscribeEventsChan(t *testing.T) {
 
 	select {
 	case receivedEvent := <-stream.Events:
-		assert.Equal(t, &publication{id: "123"}, receivedEvent)
+		assert.Equal(t, &publication{id: "123", lastEventID: "123"}, receivedEvent)
 	case <-time.After(timeToWaitForEvent):
 		t.Error("Timed out waiting for event")
 	}
