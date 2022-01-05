@@ -2,6 +2,18 @@
 
 All notable changes to the project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [1.7.0] - 2022-01-05
+This release includes improvements for SSE spec compliance that do not affect usage in the LaunchDarkly Go SDK, but may be relevant in other use cases.
+
+### Added:
+- Each event returned by the client now includes the last event ID that was seen on this stream (if any), rather than only the ID (if any) that was in that particular event. This is a requirement of the SSE spec. For backward compatibility, `Event.Id()` still has the old behavior of returning only the ID for that event; the new behavior is in a new interface method, `EventWithLastID.LastEventID()`. Every event returned by the client implements both `Event` and `EventWithLastID`.
+
+### Changed:
+- CI tests now use the latest `v2` release of https://github.com/launchdarkly/sse-contract-tests.
+
+### Fixed:
+- The client should discard any `id:` field that contains a null character, as per the SSE spec.
+
 ## [1.6.2] - 2020-12-02
 ### Fixed:
 - Removed extra newline from &#34;Reconnecting in...&#34; log message.
