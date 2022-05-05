@@ -45,9 +45,16 @@ func (enc *Encoder) Encode(ec eventOrComment) error {
 			if len(value) == 0 {
 				continue
 			}
-			value = strings.Replace(value, "\n", "\n"+prefix, -1)
-			if _, err := io.WriteString(enc.w, prefix+value+"\n"); err != nil {
-				return fmt.Errorf("eventsource encode: %v", err)
+			for _, s := range strings.Split(value, "\n") {
+				if _, err := io.WriteString(enc.w, prefix); err != nil {
+					return fmt.Errorf("eventsource encode: %v", err)
+				}
+				if _, err := io.WriteString(enc.w, s); err != nil {
+					return fmt.Errorf("eventsource encode: %v", err)
+				}
+				if _, err := io.WriteString(enc.w, "\n"); err != nil {
+					return fmt.Errorf("eventsource encode: %v", err)
+				}
 			}
 		}
 		if _, err := io.WriteString(enc.w, "\n"); err != nil {
